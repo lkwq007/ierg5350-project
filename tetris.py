@@ -1,5 +1,8 @@
 """
-@author: Viet Nguyen <nhviet1009@gmail.com>
+
+original author: Viet Nguyen <nhviet1009@gmail.com>
+url: https://github.com/uvipen/Tetris-deep-Q-learning-pytorch/blob/master/src/tetris.py
+
 """
 import numpy as np
 from PIL import Image
@@ -45,13 +48,14 @@ class Tetris:
          [7, 7, 7]]
     ]
 
-    def __init__(self, height=20, width=10, block_size=20):
+    def __init__(self, height=20, width=10, block_size=20, simplified_feature=False):
         self.height = height
         self.width = width
         self.block_size = block_size
         self.extra_board = np.ones((self.height * self.block_size, self.width * int(self.block_size / 2), 3),
                                    dtype=np.uint8) * np.array([204, 204, 255], dtype=np.uint8)
         self.text_color = (200, 20, 220)
+        self.simplified_feature = simplified_feature
         self.reset()
 
     def reset(self):
@@ -81,10 +85,28 @@ class Tetris:
 
     def get_state_properties(self, board):
         lines_cleared, board = self.check_cleared_rows(board)
-        holes = self.get_holes(board)
-        bumpiness, height = self.get_bumpiness_and_height(board)
+        if self.simplified_feature:
+            holes = self.get_holes(board)
+            bumpiness, height = self.get_bumpiness_and_height(board)
 
-        return torch.FloatTensor([lines_cleared, holes, bumpiness, height])
+            return torch.FloatTensor([lines_cleared, holes, bumpiness, height])
+        else:
+            heights = self.get_height_vector(board)
+            holes = self.get_hole_vector(board, heights)
+            return torch.FloatTensor(np.concatenate((heights, holes, [lines_cleared])))
+            # return [torch.FloatTensor(np.concatenate((heights, holes, [lines_cleared]))),board,np.sum(np.minimum(board,1), axis=0)]
+
+    def get_height_vector(self, board):
+        board = np.array(board)
+        mask = board != 0
+        invert_heights = np.where(mask.any(axis=0), np.argmax(mask, axis=0), self.height)
+        heights = self.height - invert_heights
+        return heights
+    
+    def get_hole_vector(self, board, heights):
+        board = np.array(board)
+        total = np.sum(np.minimum(board,1), axis=0)
+        return heights - total
 
     def get_holes(self, board):
         num_holes = 0
@@ -239,7 +261,8 @@ class Tetris:
         img = img[..., ::-1]
         img = Image.fromarray(img, "RGB")
 
-        img = img.resize((self.width * self.block_size, self.height * self.block_size))
+        # fix antialiasing
+        img = img.resize((self.width * self.block_size, self.height * self.block_size), 0)
         img = np.array(img)
         img[[i * self.block_size for i in range(self.height)], :, :] = 0
         img[:, [i * self.block_size for i in range(self.width)], :] = 0
