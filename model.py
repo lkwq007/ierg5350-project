@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 class DQN(nn.Module):
-    def __init__(self, input_dim, hidden_dim=64, hidden_layer=1, init_weight=True):
+    def __init__(self, input_dim=22, hidden_dim=64, hidden_layer=1, init_weight=True):
         super(DQN, self).__init__()
         lst = [nn.Linear(input_dim, hidden_dim), nn.ReLU()]
         for i in range(hidden_layer):

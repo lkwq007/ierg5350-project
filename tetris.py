@@ -231,8 +231,7 @@ class Tetris:
 
         while not self.check_collision(self.piece, self.current_pos):
             self.current_pos["y"] += 1
-            if render:
-                self.render(video)
+            self.render_write(render, video)
 
         overflow = self.truncate(self.piece, self.current_pos)
         if overflow:
@@ -252,7 +251,7 @@ class Tetris:
 
         return score, self.gameover
 
-    def render(self, video=None):
+    def render_write(self, render=True, video=None):
         if not self.gameover:
             img = [self.piece_colors[p] for row in self.get_current_board_state() for p in row]
         else:
@@ -290,6 +289,7 @@ class Tetris:
 
         if video:
             video.write(img)
-
-        cv2.imshow("Deep Q-Learning Tetris", img)
-        cv2.waitKey(1)
+            
+        if render:
+            cv2.imshow("Deep Q-Learning Tetris", img)
+            cv2.waitKey(1)
