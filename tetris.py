@@ -93,7 +93,7 @@ class Tetris:
         else:
             heights = self.get_height_vector(board)
             holes = self.get_hole_vector(board, heights)
-            return torch.FloatTensor(np.concatenate((heights, holes, [lines_cleared])))
+            return torch.FloatTensor(np.concatenate((heights, holes, [lines_cleared, self.ind])))
             # return [torch.FloatTensor(np.concatenate((heights, holes, [lines_cleared]))),board,np.sum(np.minimum(board,1), axis=0)]
 
     def get_height_vector(self, board):
