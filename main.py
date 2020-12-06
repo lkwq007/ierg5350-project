@@ -82,11 +82,10 @@ parser.add_argument('--action-repeat',
                     default=2,
                     metavar='R',
                     help='Action repeat')
-parser.add_argument('--action-noise',
-                    type=float,
-                    default=0.3,
-                    metavar='ε',
-                    help='Action noise')
+parser.add_argument('--action_dist',
+                    type=str,
+                    default='onehot',
+                    help='Action Distribution')
 parser.add_argument('--episodes',
                     type=int,
                     default=1000,
@@ -206,7 +205,7 @@ parser.add_argument('--optimisation-iters',
                     help='Planning optimisation iterations')
 parser.add_argument('--expl_type',
                     type=str,
-                    default='additive_gaussian',
+                    default='epsilon_greedy',
                     help='Exploration Decay Init Value')
 parser.add_argument('--expl_amount',
                     type=float,
@@ -264,9 +263,10 @@ args = parser.parse_args()
 args.overshooting_distance = min(
     args.chunk_size, args.overshooting_distance
 )  # Overshooting distance cannot be greater than chunk size
-print(' ' * 26 + 'Options')
+print('---- Options ----')
 for k, v in vars(args).items():
-    print(' ' * 26 + k + ': ' + str(v))
+    print(k + ': ' + str(v))
+print('--------\n')
 
 # Setup
 results_dir = os.path.join('results', '{}_{}'.format(args.env, args.id))
@@ -332,7 +332,7 @@ reward_model = RewardModel(
 encoder = Encoder(env.observation_size, args.embedding_size,
                   args.cnn_activation_function).to(device=args.device)
 actor_model = ActorModel(args.belief_size, args.state_size, args.hidden_size,
-                         env.action_size,
+                         env.action_size, args.action_dist,
                          args.dense_activation_function).to(device=args.device)
 value_model = ValueModel(args.belief_size, args.state_size, args.hidden_size,
                          args.dense_activation_function).to(device=args.device)

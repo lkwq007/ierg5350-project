@@ -3,7 +3,7 @@ import torch
 from torch import jit, nn
 from torch.nn import functional as F
 import torch.distributions
-from torch.distributions.normal import Normal
+from torch.distributions import Normal, Categorical
 from torch.distributions.transforms import Transform, TanhTransform
 from torch.distributions.transformed_distribution import TransformedDistribution
 import numpy as np
@@ -226,47 +226,67 @@ class ActorModel(jit.ScriptModule):
                  dist='tanh_normal',
                  activation_function='elu',
                  min_std=1e-4,
-                 init_std=5,
-                 mean_scale=5):
+                 init_std=5.0,
+                 mean_scale=5.0):
         super().__init__()
-        self.act_fn = getattr(F, activation_function)
-        self.fc1 = nn.Linear(belief_size + state_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, hidden_size)
-        self.fc3 = nn.Linear(hidden_size, hidden_size)
-        self.fc4 = nn.Linear(hidden_size, hidden_size)
-        self.fc5 = nn.Linear(hidden_size, 2 * action_size)
-        self.modules = [self.fc1, self.fc2, self.fc3, self.fc4, self.fc5]
-
         self._dist = dist
         self._min_std = min_std
         self._init_std = init_std
         self._mean_scale = mean_scale
 
+        self.act_fn = getattr(F, activation_function)
+        self.fc1 = nn.Linear(belief_size + state_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.fc4 = nn.Linear(hidden_size, hidden_size)
+        if self._dist == 'tanh_normal':
+            self.fc5 = nn.Linear(hidden_size, 2 * action_size)
+        elif self._dist == 'onehot':
+            self.fc5 = nn.Linear(hidden_size, action_size)
+        else:
+            raise NotImplementedError(self._dist)
+
+        self.modules = [self.fc1, self.fc2, self.fc3, self.fc4, self.fc5]
+
     @jit.script_method
     def forward(self, belief, state):
-        raw_init_std = torch.log(torch.exp(self._init_std) - 1)
+
         x = torch.cat([belief, state], dim=1)
         hidden = self.act_fn(self.fc1(x))
         hidden = self.act_fn(self.fc2(hidden))
         hidden = self.act_fn(self.fc3(hidden))
         hidden = self.act_fn(self.fc4(hidden))
-        action = self.fc5(hidden).squeeze(dim=1)
+        actor_out = self.fc5(hidden).squeeze(dim=1)
 
-        action_mean, action_std_dev = torch.chunk(action, 2, dim=1)
-        action_mean = self._mean_scale * torch.tanh(
-            action_mean / self._mean_scale)
-        action_std = F.softplus(action_std_dev + raw_init_std) + self._min_std
-        return action_mean, action_std
+        return actor_out
 
     def get_action(self, belief, state, det=False):
-        action_mean, action_std = self.forward(belief, state)
-        dist = Normal(action_mean, action_std)
-        dist = TransformedDistribution(dist, TanhBijector())
-        dist = torch.distributions.Independent(dist, 1)
-        dist = SampleDist(dist)
-        if det: return dist.mode()
-        else: return dist.rsample()
+        actor_out = self.forward(belief, state)
+        if self._dist == 'tanh_normal':
+            # actor_out.size() == (N x (action_size * 2))
+            tmp = torch.tensor(self._init_std,
+                               device=actor_out.get_device())
+            raw_init_std = torch.log(torch.exp(tmp) - 1)
+            action_mean, action_std_dev = torch.chunk(actor_out, 2, dim=1)
+            action_mean = self._mean_scale * torch.tanh(
+                action_mean / self._mean_scale)
+            action_std = F.softplus(action_std_dev +
+                                    raw_init_std) + self._min_std
 
+            dist = Normal(action_mean, action_std)
+            dist = TransformedDistribution(dist, TanhBijector())
+            dist = torch.distributions.Independent(dist, 1)
+            dist = SampleDist(dist)
+        elif self._dist == 'onehot':
+            # actor_out.size() == (N x action_size)
+            dist = Categorical(logits=actor_out)
+            dist = OneHotDist(dist)
+        else:
+            raise NotImplementedError(self._dist)
+        if det:
+            return dist.mode()
+        else:
+            return dist.sample()
 
 
 class VisualEncoder(jit.ScriptModule):
@@ -341,10 +361,6 @@ class SampleDist:
     def __getattr__(self, name):
         return getattr(self._dist, name)
 
-    def mean(self):
-        sample = dist.rsample()
-        return torch.mean(sample, 0)
-
     def mode(self):
         dist = self._dist.expand((self._samples, *self._dist.batch_shape))
         sample = dist.rsample()
@@ -363,4 +379,30 @@ class SampleDist:
         return -torch.mean(logprob, 0)
 
     def sample(self):
-        return self._dist.sample()
+        return self.rsample()
+
+
+class OneHotDist:
+    def __init__(self, dist):
+        self._dist = dist
+        self._num_classes = dist.probs.shape[-1]
+
+    @property
+    def name(self):
+        return 'OneHotDist'
+
+    def __getattr__(self, name):
+        return getattr(self._dist, name)
+
+    def mode(self):
+        return self._one_hot(self._dist.probs.argmax(dim=1))
+
+    def sample(self):
+        indices = self._dist.sample()
+        sample = self._one_hot(indices)
+        probs = self._dist.probs
+        sample += (probs - probs.detach()).float() # make probs differentiable
+        return sample
+
+    def _one_hot(self, indices):
+        return F.one_hot(indices, self._num_classes).float()

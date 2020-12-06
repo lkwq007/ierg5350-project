@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import torch
+from torch.nn import functional as F
 
 NES_ENVS = ['TetrisA-v0']
 
@@ -138,8 +139,7 @@ class NesEnv():
         return observation
 
     def step(self, action):
-        # action = action.detach().numpy()
-        action = action.item()
+        action = action.argmax().item()  # convert onehot action to int
         reward = 0
         state, done = None, None
         for k in range(self.action_repeat):
@@ -163,14 +163,15 @@ class NesEnv():
     def observation_size(self):
         # self._env.observation_space.shape: H x W x C (240x256x3)
         return (3, 64, 64)  # C x H x W
-        # return (3, 120, 128) # C x H x W # TODO
+        # return (3, 120, 128) # C x H x W # TODO: Lixin
 
     @property
     def action_size(self):
         return self._env.action_space.n
 
     def sample_random_action(self):
-        return torch.tensor(self._env.action_space.sample())
+        indices = torch.tensor(self._env.action_space.sample())
+        return F.one_hot(indices, self.action_size).float()
 
 
 class GymEnv():
