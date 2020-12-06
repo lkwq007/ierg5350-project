@@ -3,7 +3,7 @@ import os
 import numpy as np
 import torch
 from torch import nn, optim
-from torch.distributions import Normal
+from torch.distributions import Normal, Categorical
 from torch.distributions.kl import kl_divergence
 from torch.nn import functional as F
 from torchvision.utils import make_grid, save_image
@@ -33,10 +33,6 @@ parser.add_argument('--env',
                     default='TetrisA-v0',
                     choices=NES_ENVS + GYM_ENVS + CONTROL_SUITE_ENVS,
                     help='Gym/Control Suite environment')
-parser.add_argument('--symbolic-env',
-                    type=str2bool,
-                    default=False,
-                    help='Symbolic features')
 parser.add_argument('--max-episode-length',
                     type=int,
                     default=1000,
@@ -208,6 +204,22 @@ parser.add_argument('--optimisation-iters',
                     default=10,
                     metavar='I',
                     help='Planning optimisation iterations')
+parser.add_argument('--expl_type',
+                    type=str,
+                    default='additive_gaussian',
+                    help='Exploration Decay Init Value')
+parser.add_argument('--expl_amount',
+                    type=float,
+                    default=0.3,
+                    help='Exploration Decay Init Value')
+parser.add_argument('--expl_decay',
+                    type=float,
+                    default=0.0,
+                    help='Exploration Decay Weight')
+parser.add_argument('--expl_min',
+                    type=float,
+                    default=0.0,
+                    help='Minimum Exploration Decay Value')
 parser.add_argument('--candidates',
                     type=int,
                     default=1000,
@@ -285,16 +297,15 @@ summary_name = results_dir + "/{}_{}_log"
 writer = SummaryWriter(summary_name.format(args.env, args.id))
 
 # Initialise training environment and experience replay memory
-env = Env(args.env, args.symbolic_env, args.seed, args.max_episode_length,
-          args.action_repeat, args.bit_depth)
+env = Env(args.env, args.seed, args.max_episode_length, args.action_repeat,
+          args.bit_depth)
 if args.experience_replay != '' and os.path.exists(args.experience_replay):
     D = torch.load(args.experience_replay)
     metrics['steps'], metrics['episodes'] = [D.steps] * D.episodes, list(
         range(1, D.episodes + 1))
 elif not args.test:
-    D = ExperienceReplay(args.experience_size, args.symbolic_env,
-                         env.observation_size, env.action_size, args.bit_depth,
-                         args.device)
+    D = ExperienceReplay(args.experience_size, env.observation_size,
+                         env.action_size, args.bit_depth, args.device)
     # Initialise dataset D with S random seed episodes
     for s in range(1, args.seed_episodes + 1):
         observation, done, t = env.reset(), False, 0
@@ -313,12 +324,12 @@ transition_model = TransitionModel(
     args.belief_size, args.state_size, env.action_size, args.hidden_size,
     args.embedding_size, args.dense_activation_function).to(device=args.device)
 observation_model = ObservationModel(
-    args.symbolic_env, env.observation_size, args.belief_size, args.state_size,
+    env.observation_size, args.belief_size, args.state_size,
     args.embedding_size, args.cnn_activation_function).to(device=args.device)
 reward_model = RewardModel(
     args.belief_size, args.state_size, args.hidden_size,
     args.dense_activation_function).to(device=args.device)
-encoder = Encoder(args.symbolic_env, env.observation_size, args.embedding_size,
+encoder = Encoder(env.observation_size, args.embedding_size,
                   args.cnn_activation_function).to(device=args.device)
 actor_model = ActorModel(args.belief_size, args.state_size, args.hidden_size,
                          env.action_size,
@@ -377,9 +388,9 @@ def update_belief_and_act(args,
                           posterior_state,
                           action,
                           observation,
-                          explore=False):
+                          explore=False,
+                          step=0):
     # Infer belief over current state q(s_t|o≤t,a<t) from the history
-    # print("action size: ",action.size()) torch.Size([1, 6])
     belief, _, _, _, posterior_state, _, _ = transition_model(
         posterior_state, action.unsqueeze(dim=0), belief,
         encoder(observation).unsqueeze(
@@ -393,14 +404,31 @@ def update_belief_and_act(args,
             belief,
             posterior_state)  # Get action from planner(q(s_t|o≤t,a<t), p)
     if explore:
-        action = torch.clamp(
-            Normal(action, args.action_noise).rsample(), -1,
-            1)  # Add gaussian exploration noise on top of the sampled action
-        # action = action + args.action_noise * torch.randn_like(action)  # Add exploration noise ε ~ p(ε) to the action
+        action = exploration(args, action, step)
     next_observation, reward, done = env.step(
         action.cpu() if isinstance(env, EnvBatcher) else action[0].cpu(
         ))  # Perform environment step (action repeats handled internally)
     return belief, posterior_state, action, next_observation, reward, done
+
+
+def exploration(args, action, step):
+    amount = args.expl_amount
+    if args.expl_decay:
+        amount *= 0.5**(float(step) / args.expl_decay)
+    if args.expl_min:
+        amount = max(args.expl_min, amount)
+    if args.expl_type == 'additive_gaussian':
+        action = torch.clamp(Normal(action, amount).rsample(), -1, 1)
+    elif args.expl_type == 'epsilon_greedy':
+        prob = torch.ones_like(action)
+        prob = prob / torch.sum(prob)
+        indices = Categorical(prob).sample()
+        action = torch.where(
+            torch.rand(action.shape[:1], device=action.get_device()) < amount,
+            F.one_hot(indices, action.shape[-1]).float(), action)
+    else:
+        raise NotImplementedError(args.expl_type)
+    return action
 
 
 # Testing only
@@ -465,14 +493,12 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1),
             observation_dist = Normal(
                 bottle(observation_model, (beliefs, posterior_states)), 1)
             observation_loss = -observation_dist.log_prob(
-                observations[1:]).sum(
-                    dim=2 if args.symbolic_env else (2, 3, 4)).mean(dim=(0, 1))
+                observations[1:]).sum(dim=(2, 3, 4)).mean(dim=(0, 1))
         else:
             observation_loss = F.mse_loss(
                 bottle(observation_model, (beliefs, posterior_states)),
                 observations[1:],
-                reduction='none').sum(
-                    dim=2 if args.symbolic_env else (2, 3, 4)).mean(dim=(0, 1))
+                reduction='none').sum(dim=(2, 3, 4)).mean(dim=(0, 1))
         if args.worldmodel_LogProbLoss:
             reward_dist = Normal(
                 bottle(reward_model, (beliefs, posterior_states)), 1)
@@ -661,7 +687,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1),
                 posterior_state,
                 action,
                 observation.to(device=args.device),
-                explore=True)
+                explore=True,
+                step=t + metrics['steps'][-1])
             D.append(observation, action.cpu(), reward, done)
             total_reward += reward
             observation = next_observation
@@ -689,10 +716,10 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1),
         actor_model.eval()
         value_model.eval()
         # Initialise parallelised test environments
-        test_envs = EnvBatcher(
-            Env, (args.env, args.symbolic_env, args.seed,
-                  args.max_episode_length, args.action_repeat, args.bit_depth),
-            {}, args.test_episodes)
+        test_envs = EnvBatcher(Env,
+                               (args.env, args.seed, args.max_episode_length,
+                                args.action_repeat, args.bit_depth), {},
+                               args.test_episodes)
 
         with torch.no_grad():
             observation, total_rewards, video_frames = test_envs.reset(
@@ -711,14 +738,13 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1),
                     belief, posterior_state, action,
                     observation.to(device=args.device))
                 total_rewards += reward.numpy()
-                if not args.symbolic_env:  # Collect real vs. predicted frames for video
-                    video_frames.append(
-                        make_grid(torch.cat([
-                            observation,
-                            observation_model(belief, posterior_state).cpu()
-                        ],
-                                            dim=3) + 0.5,
-                                  nrow=5).numpy())  # Decentre
+                video_frames.append(
+                    make_grid(torch.cat([
+                        observation,
+                        observation_model(belief, posterior_state).cpu()
+                    ],
+                                        dim=3) + 0.5,
+                              nrow=5).numpy())  # Decentre
                 observation = next_observation
                 if done.sum().item() == args.test_episodes:
                     pbar.close()
@@ -735,13 +761,12 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1),
                  'test_rewards_steps',
                  results_dir,
                  xaxis='step')
-        if not args.symbolic_env:
-            episode_str = str(episode).zfill(len(str(args.episodes)))
-            write_video(video_frames, 'test_episode_%s' % episode_str,
-                        results_dir)  # Lossy compression
-            save_image(
-                torch.as_tensor(video_frames[-1]),
-                os.path.join(results_dir, 'test_episode_%s.png' % episode_str))
+        episode_str = str(episode).zfill(len(str(args.episodes)))
+        write_video(video_frames, 'test_episode_%s' % episode_str,
+                    results_dir)  # Lossy compression
+        save_image(
+            torch.as_tensor(video_frames[-1]),
+            os.path.join(results_dir, 'test_episode_%s.png' % episode_str))
         torch.save(metrics, os.path.join(results_dir, 'metrics.pth'))
 
         # Set models to train mode

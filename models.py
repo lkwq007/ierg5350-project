@@ -129,28 +129,6 @@ class TransitionModel(jit.ScriptModule):
         return hidden
 
 
-class SymbolicObservationModel(jit.ScriptModule):
-    def __init__(self,
-                 observation_size,
-                 belief_size,
-                 state_size,
-                 embedding_size,
-                 activation_function='relu'):
-        super().__init__()
-        self.act_fn = getattr(F, activation_function)
-        self.fc1 = nn.Linear(belief_size + state_size, embedding_size)
-        self.fc2 = nn.Linear(embedding_size, embedding_size)
-        self.fc3 = nn.Linear(embedding_size, observation_size)
-        self.modules = [self.fc1, self.fc2, self.fc3]
-
-    @jit.script_method
-    def forward(self, belief, state):
-        hidden = self.act_fn(self.fc1(torch.cat([belief, state], dim=1)))
-        hidden = self.act_fn(self.fc2(hidden))
-        observation = self.fc3(hidden)
-        return observation
-
-
 class VisualObservationModel(jit.ScriptModule):
     __constants__ = ['embedding_size']
 
@@ -183,19 +161,13 @@ class VisualObservationModel(jit.ScriptModule):
         return observation
 
 
-def ObservationModel(symbolic,
-                     observation_size,
+def ObservationModel(observation_size,
                      belief_size,
                      state_size,
                      embedding_size,
                      activation_function='relu'):
-    if symbolic:
-        return SymbolicObservationModel(observation_size, belief_size,
-                                        state_size, embedding_size,
-                                        activation_function)
-    else:
-        return VisualObservationModel(belief_size, state_size, embedding_size,
-                                      activation_function)
+    return VisualObservationModel(belief_size, state_size, embedding_size,
+                                  activation_function)
 
 
 class RewardModel(jit.ScriptModule):
@@ -296,25 +268,6 @@ class ActorModel(jit.ScriptModule):
         else: return dist.rsample()
 
 
-class SymbolicEncoder(jit.ScriptModule):
-    def __init__(self,
-                 observation_size,
-                 embedding_size,
-                 activation_function='relu'):
-        super().__init__()
-        self.act_fn = getattr(F, activation_function)
-        self.fc1 = nn.Linear(observation_size, embedding_size)
-        self.fc2 = nn.Linear(embedding_size, embedding_size)
-        self.fc3 = nn.Linear(embedding_size, embedding_size)
-        self.modules = [self.fc1, self.fc2, self.fc3]
-
-    @jit.script_method
-    def forward(self, observation):
-        hidden = self.act_fn(self.fc1(observation))
-        hidden = self.act_fn(self.fc2(hidden))
-        hidden = self.fc3(hidden)
-        return hidden
-
 
 class VisualEncoder(jit.ScriptModule):
     __constants__ = ['embedding_size']
@@ -344,15 +297,8 @@ class VisualEncoder(jit.ScriptModule):
         return hidden
 
 
-def Encoder(symbolic,
-            observation_size,
-            embedding_size,
-            activation_function='relu'):
-    if symbolic:
-        return SymbolicEncoder(observation_size, embedding_size,
-                               activation_function)
-    else:
-        return VisualEncoder(embedding_size, activation_function)
+def Encoder(observation_size, embedding_size, activation_function='relu'):
+    return VisualEncoder(embedding_size, activation_function)
 
 
 # "atanh", "TanhBijector" and "SampleDist" are from the following repo

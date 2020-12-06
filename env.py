@@ -45,27 +45,26 @@ def postprocess_observation(observation, bit_depth):
         2**8 - 1).astype(np.uint8)
 
 
-def _images_to_observation(images, bit_depth):
-    images = torch.FloatTensor(cv2.resize(images, (64, 64),
-                                     interpolation=cv2.INTER_LINEAR).transpose(
-                                         2, 0, 1))  # Resize and put channel first
+def _images_to_observation(images, bit_depth, img_size=(3, 64, 64)):
+    images = torch.FloatTensor(
+        cv2.resize(images, (img_size[2], img_size[1]),
+                   interpolation=cv2.INTER_LINEAR).transpose(
+                       2, 0, 1))  # Resize and put channel first
     preprocess_observation_(
         images, bit_depth)  # Quantise, centre and dequantise inplace
     return images.unsqueeze(dim=0)  # Add batch dimension
 
 
 class ControlSuiteEnv():
-    def __init__(self, env, symbolic, seed, max_episode_length, action_repeat,
+    def __init__(self, env, seed, max_episode_length, action_repeat,
                  bit_depth):
         from dm_control import suite
         from dm_control.suite.wrappers import pixels
         domain, task = env.split('-')
-        self.symbolic = symbolic
         self._env = suite.load(domain_name=domain,
                                task_name=task,
                                task_kwargs={'random': seed})
-        if not symbolic:
-            self._env = pixels.Wrapper(self._env)
+        self._env = pixels.Wrapper(self._env)
         self.max_episode_length = max_episode_length
         self.action_repeat = action_repeat
         if action_repeat != CONTROL_SUITE_ACTION_REPEATS[domain]:
@@ -77,16 +76,8 @@ class ControlSuiteEnv():
     def reset(self):
         self.t = 0  # Reset internal timer
         state = self._env.reset()
-        if self.symbolic:
-            return torch.tensor(np.concatenate([
-                np.asarray([obs]) if isinstance(obs, float) else obs
-                for obs in state.observation.values()
-            ],
-                                               axis=0),
-                                dtype=torch.float32).unsqueeze(dim=0)
-        else:
-            return _images_to_observation(
-                self._env.physics.render(camera_id=0), self.bit_depth)
+        return _images_to_observation(self._env.physics.render(camera_id=0),
+                                      self.bit_depth)
 
     def step(self, action):
         action = action.detach().numpy()
@@ -98,16 +89,8 @@ class ControlSuiteEnv():
             done = state.last() or self.t == self.max_episode_length
             if done:
                 break
-        if self.symbolic:
-            observation = torch.tensor(np.concatenate([
-                np.asarray([obs]) if isinstance(obs, float) else obs
-                for obs in state.observation.values()
-            ],
-                                                      axis=0),
-                                       dtype=torch.float32).unsqueeze(dim=0)
-        else:
-            observation = _images_to_observation(
-                self._env.physics.render(camera_id=0), self.bit_depth)
+        observation = _images_to_observation(
+            self._env.physics.render(camera_id=0), self.bit_depth)
         return observation, reward, done
 
     def render(self):
@@ -120,9 +103,7 @@ class ControlSuiteEnv():
 
     @property
     def observation_size(self):
-        return sum([(1 if len(obs.shape) == 0 else obs.shape[0])
-                    for obs in self._env.observation_spec().values()
-                    ]) if self.symbolic else (3, 64, 64)
+        return (3, 64, 64)
 
     @property
     def action_size(self):
@@ -136,7 +117,7 @@ class ControlSuiteEnv():
 
 
 class NesEnv():
-    def __init__(self, env, symbolic, seed, max_episode_length, action_repeat,
+    def __init__(self, env, seed, max_episode_length, action_repeat,
                  bit_depth):
         from nes_py.wrappers import JoypadSpace
         import gym_tetris
@@ -152,11 +133,13 @@ class NesEnv():
     def reset(self):
         self.t = 0  # Reset internal timer
         state = self._env.reset()
-        observation = _images_to_observation(state, self.bit_depth) # NxCxHxW
+        observation = _images_to_observation(state, self.bit_depth,
+                                             self.observation_size)  # NxCxHxW
         return observation
 
     def step(self, action):
-        action = action.detach().numpy()
+        # action = action.detach().numpy()
+        action = action.item()
         reward = 0
         state, done = None, None
         for k in range(self.action_repeat):
@@ -166,7 +149,8 @@ class NesEnv():
             done = done or self.t == self.max_episode_length
             if done:
                 break
-        observation = _images_to_observation(state, self.bit_depth)
+        observation = _images_to_observation(state, self.bit_depth,
+                                             self.observation_size)
         return observation, reward, done
 
     def render(self):
@@ -178,7 +162,8 @@ class NesEnv():
     @property
     def observation_size(self):
         # self._env.observation_space.shape: H x W x C (240x256x3)
-        return (3, 240, 256)
+        return (3, 64, 64)  # C x H x W
+        # return (3, 120, 128) # C x H x W # TODO
 
     @property
     def action_size(self):
@@ -187,11 +172,11 @@ class NesEnv():
     def sample_random_action(self):
         return torch.tensor(self._env.action_space.sample())
 
+
 class GymEnv():
-    def __init__(self, env, symbolic, seed, max_episode_length, action_repeat,
+    def __init__(self, env, seed, max_episode_length, action_repeat,
                  bit_depth):
         import gym
-        self.symbolic = symbolic
         self._env = gym.make(env)
         self._env.seed(seed)
         self.max_episode_length = max_episode_length
@@ -201,11 +186,8 @@ class GymEnv():
     def reset(self):
         self.t = 0  # Reset internal timer
         state = self._env.reset()
-        if self.symbolic:
-            return torch.tensor(state, dtype=torch.float32).unsqueeze(dim=0)
-        else:
-            return _images_to_observation(self._env.render(mode='rgb_array'),
-                                          self.bit_depth)
+        return _images_to_observation(self._env.render(mode='rgb_array'),
+                                      self.bit_depth)
 
     def step(self, action):
         action = action.detach().numpy()
@@ -217,12 +199,8 @@ class GymEnv():
             done = done or self.t == self.max_episode_length
             if done:
                 break
-        if self.symbolic:
-            observation = torch.tensor(state,
-                                       dtype=torch.float32).unsqueeze(dim=0)
-        else:
-            observation = _images_to_observation(
-                self._env.render(mode='rgb_array'), self.bit_depth)
+        observation = _images_to_observation(
+            self._env.render(mode='rgb_array'), self.bit_depth)
         return observation, reward, done
 
     def render(self):
@@ -233,7 +211,7 @@ class GymEnv():
 
     @property
     def observation_size(self):
-        return self._env.observation_space.shape[0] if self.symbolic else (3, 64, 64)
+        return (3, 64, 64)
 
     @property
     def action_size(self):
@@ -244,16 +222,14 @@ class GymEnv():
         return torch.from_numpy(self._env.action_space.sample())
 
 
-def Env(env, symbolic, seed, max_episode_length, action_repeat, bit_depth):
+def Env(env, seed, max_episode_length, action_repeat, bit_depth):
     if env in GYM_ENVS:
-        return GymEnv(env, symbolic, seed, max_episode_length, action_repeat,
-                      bit_depth)
+        return GymEnv(env, seed, max_episode_length, action_repeat, bit_depth)
     elif env in CONTROL_SUITE_ENVS:
-        return ControlSuiteEnv(env, symbolic, seed, max_episode_length,
-                               action_repeat, bit_depth)
+        return ControlSuiteEnv(env, seed, max_episode_length, action_repeat,
+                               bit_depth)
     elif env in NES_ENVS:
-        return NesEnv(env, symbolic, seed, max_episode_length, action_repeat,
-                      bit_depth)
+        return NesEnv(env, seed, max_episode_length, action_repeat, bit_depth)
 
 
 # Wrapper for batching environments together
