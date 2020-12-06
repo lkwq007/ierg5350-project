@@ -1,7 +1,6 @@
 from typing import Optional, List
 import torch
-# from torch import jit, nn
-from torch import nn
+from torch import jit, nn
 from torch.nn import functional as F
 import torch.distributions
 from torch.distributions.normal import Normal
@@ -19,7 +18,7 @@ def bottle(f, x_tuple):
   return output
 
 
-class TransitionModel(nn.Module):
+class TransitionModel(jit.ScriptModule):
   __constants__ = ['min_std_dev']
 
   def __init__(self, belief_size, state_size, action_size, hidden_size, embedding_size, activation_function='relu', min_std_dev=0.1):
@@ -44,7 +43,7 @@ class TransitionModel(nn.Module):
   # ps: -X-
   # b : -x--X--X--X--X--X-
   # s : -x--X--X--X--X--X-
-  # @jit.script_method
+  @jit.script_method
   def forward(self, prev_state:torch.Tensor, actions:torch.Tensor, prev_belief:torch.Tensor, observations:Optional[torch.Tensor]=None, nonterminals:Optional[torch.Tensor]=None) -> List[torch.Tensor]:
     '''
     Input: init_belief, init_state:  torch.Size([50, 200]) torch.Size([50, 30])
@@ -81,7 +80,7 @@ class TransitionModel(nn.Module):
     return hidden
 
 
-class SymbolicObservationModel(nn.Module):
+class SymbolicObservationModel(jit.ScriptModule):
   def __init__(self, observation_size, belief_size, state_size, embedding_size, activation_function='relu'):
     super().__init__()
     self.act_fn = getattr(F, activation_function)
@@ -90,7 +89,7 @@ class SymbolicObservationModel(nn.Module):
     self.fc3 = nn.Linear(embedding_size, observation_size)
     self.modules = [self.fc1, self.fc2, self.fc3]
 
-  # @jit.script_method
+  @jit.script_method
   def forward(self, belief, state):
     hidden = self.act_fn(self.fc1(torch.cat([belief, state], dim=1)))
     hidden = self.act_fn(self.fc2(hidden))
@@ -98,21 +97,21 @@ class SymbolicObservationModel(nn.Module):
     return observation
 
 
-class VisualObservationModel(nn.Module):
+class VisualObservationModel(jit.ScriptModule):
+  __constants__ = ['embedding_size']
   
-  def __init__(self, belief_size, state_size, embedding_size, activation_function='relu', notstack=False):
+  def __init__(self, belief_size, state_size, embedding_size, activation_function='relu'):
     super().__init__()
     self.act_fn = getattr(F, activation_function)
     self.embedding_size = embedding_size
-    out_dim=1 if notstack else 4
     self.fc1 = nn.Linear(belief_size + state_size, embedding_size)
     self.conv1 = nn.ConvTranspose2d(embedding_size, 128, 5, stride=2)
     self.conv2 = nn.ConvTranspose2d(128, 64, 5, stride=2)
-    self.conv3 = nn.ConvTranspose2d(64, 32, 7, stride=2)
-    self.conv4 = nn.ConvTranspose2d(32, out_dim, 6, stride=3)
+    self.conv3 = nn.ConvTranspose2d(64, 32, 6, stride=2)
+    self.conv4 = nn.ConvTranspose2d(32, 3, 6, stride=2)
     self.modules = [self.fc1, self.conv1, self.conv2, self.conv3, self.conv4]
 
-  # @jit.script_method
+  @jit.script_method
   def forward(self, belief, state):
     hidden = self.fc1(torch.cat([belief, state], dim=1))  # No nonlinearity here
     hidden = hidden.view(-1, self.embedding_size, 1, 1)
@@ -123,14 +122,14 @@ class VisualObservationModel(nn.Module):
     return observation
 
 
-def ObservationModel(symbolic, observation_size, belief_size, state_size, embedding_size, activation_function='relu', notstack=False):
+def ObservationModel(symbolic, observation_size, belief_size, state_size, embedding_size, activation_function='relu'):
   if symbolic:
     return SymbolicObservationModel(observation_size, belief_size, state_size, embedding_size, activation_function)
   else:
-    return VisualObservationModel(belief_size, state_size, embedding_size, activation_function, notstack=notstack)
+    return VisualObservationModel(belief_size, state_size, embedding_size, activation_function)
 
 
-class RewardModel(nn.Module):
+class RewardModel(jit.ScriptModule):
   def __init__(self, belief_size, state_size, hidden_size, activation_function='relu'):
     # [--belief-size: 200, --hidden-size: 200, --state-size: 30]
     super().__init__()
@@ -140,7 +139,7 @@ class RewardModel(nn.Module):
     self.fc3 = nn.Linear(hidden_size, 1)
     self.modules = [self.fc1, self.fc2, self.fc3]
 
-  # @jit.script_method
+  @jit.script_method
   def forward(self, belief, state):
     x = torch.cat([belief, state],dim=1)
     hidden = self.act_fn(self.fc1(x))
@@ -148,7 +147,7 @@ class RewardModel(nn.Module):
     reward = self.fc3(hidden).squeeze(dim=1)
     return reward
 
-class ValueModel(nn.Module):
+class ValueModel(jit.ScriptModule):
   def __init__(self, belief_size, state_size, hidden_size, activation_function='relu'):
     super().__init__()
     self.act_fn = getattr(F, activation_function)
@@ -158,7 +157,7 @@ class ValueModel(nn.Module):
     self.fc4 = nn.Linear(hidden_size, 1)
     self.modules = [self.fc1, self.fc2, self.fc3, self.fc4]
 
-  # @jit.script_method
+  @jit.script_method
   def forward(self, belief, state):
     x = torch.cat([belief, state],dim=1)
     hidden = self.act_fn(self.fc1(x))
@@ -167,7 +166,7 @@ class ValueModel(nn.Module):
     reward = self.fc4(hidden).squeeze(dim=1)
     return reward
 
-class ActorModel(nn.Module):
+class ActorModel(jit.ScriptModule):
   def __init__(self, belief_size, state_size, hidden_size, action_size, dist='tanh_normal',
                 activation_function='elu', min_std=1e-4, init_std=5, mean_scale=5):
     super().__init__()
@@ -184,10 +183,9 @@ class ActorModel(nn.Module):
     self._init_std = init_std
     self._mean_scale = mean_scale
 
-  # @jit.script_method
+  @jit.script_method
   def forward(self, belief, state):
-    raw_init_std = np.log(np.exp(self._init_std) - 1)
-    # raw_init_std = torch.log(torch.exp(self._init_std) - 1)
+    raw_init_std = torch.log(torch.exp(self._init_std) - 1)
     x = torch.cat([belief, state],dim=1)
     hidden = self.act_fn(self.fc1(x))
     hidden = self.act_fn(self.fc2(hidden))
@@ -210,7 +208,7 @@ class ActorModel(nn.Module):
     else: return dist.rsample()
 
 
-class SymbolicEncoder(nn.Module):
+class SymbolicEncoder(jit.ScriptModule):
   def __init__(self, observation_size, embedding_size, activation_function='relu'):
     super().__init__()
     self.act_fn = getattr(F, activation_function)
@@ -219,7 +217,7 @@ class SymbolicEncoder(nn.Module):
     self.fc3 = nn.Linear(embedding_size, embedding_size)
     self.modules = [self.fc1, self.fc2, self.fc3]
 
-  # @jit.script_method
+  @jit.script_method
   def forward(self, observation):
     hidden = self.act_fn(self.fc1(observation))
     hidden = self.act_fn(self.fc2(hidden))
@@ -227,21 +225,21 @@ class SymbolicEncoder(nn.Module):
     return hidden
 
 
-class VisualEncoder(nn.Module):
+class VisualEncoder(jit.ScriptModule):
+  __constants__ = ['embedding_size']
   
-  def __init__(self, embedding_size, activation_function='relu', notstack=False):
+  def __init__(self, embedding_size, activation_function='relu'):
     super().__init__()
     self.act_fn = getattr(F, activation_function)
     self.embedding_size = embedding_size
-    in_dim=1 if notstack else 4
-    self.conv1 = nn.Conv2d(in_dim, 32, 4, stride=3)
+    self.conv1 = nn.Conv2d(3, 32, 4, stride=2)
     self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
     self.conv3 = nn.Conv2d(64, 128, 4, stride=2)
     self.conv4 = nn.Conv2d(128, 256, 4, stride=2)
     self.fc = nn.Identity() if embedding_size == 1024 else nn.Linear(1024, embedding_size)
     self.modules = [self.conv1, self.conv2, self.conv3, self.conv4]
 
-  # @jit.script_method
+  @jit.script_method
   def forward(self, observation):
     hidden = self.act_fn(self.conv1(observation))
     hidden = self.act_fn(self.conv2(hidden))
@@ -252,11 +250,11 @@ class VisualEncoder(nn.Module):
     return hidden
 
 
-def Encoder(symbolic, observation_size, embedding_size, activation_function='relu', notstack=False):
+def Encoder(symbolic, observation_size, embedding_size, activation_function='relu'):
   if symbolic:
     return SymbolicEncoder(observation_size, embedding_size, activation_function)
   else:
-    return VisualEncoder(embedding_size, activation_function, notstack=notstack)
+    return VisualEncoder(embedding_size, activation_function)
 
 
 # "atanh", "TanhBijector" and "SampleDist" are from the following repo

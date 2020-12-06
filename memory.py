@@ -4,12 +4,11 @@ from env import postprocess_observation, preprocess_observation_
 
 
 class ExperienceReplay():
-  def __init__(self, size, symbolic_env, observation_size, action_size, bit_depth, device, notstack=False):
+  def __init__(self, size, symbolic_env, observation_size, action_size, bit_depth, device):
     self.device = device
     self.symbolic_env = symbolic_env
     self.size = size
-    dim=1 if notstack else 4
-    self.observations = np.empty((size, observation_size) if symbolic_env else (size, dim, 96, 96), dtype=np.float32)
+    self.observations = np.empty((size, observation_size) if symbolic_env else (size, 3, 64, 64), dtype=np.float32 if symbolic_env else np.uint8)
     self.actions = np.empty((size, action_size), dtype=np.float32)
     self.rewards = np.empty((size, ), dtype=np.float32) 
     self.nonterminals = np.empty((size, 1), dtype=np.float32)
@@ -19,7 +18,10 @@ class ExperienceReplay():
     self.bit_depth = bit_depth
 
   def append(self, observation, action, reward, done):
-    self.observations[self.idx] = observation #postprocess_observation(observation.numpy(), self.bit_depth)  # Decentre and discretise visual observations (to save memory)
+    if self.symbolic_env:
+      self.observations[self.idx] = observation.numpy()
+    else:
+      self.observations[self.idx] = postprocess_observation(observation.numpy(), self.bit_depth)  # Decentre and discretise visual observations (to save memory)
     self.actions[self.idx] = action.numpy()
     self.rewards[self.idx] = reward
     self.nonterminals[self.idx] = not done
@@ -38,9 +40,9 @@ class ExperienceReplay():
 
   def _retrieve_batch(self, idxs, n, L):
     vec_idxs = idxs.transpose().reshape(-1)  # Unroll indices
-    # observations = torch.as_tensor(self.observations[vec_idxs].astype(np.float32))
-    observations = self.observations[vec_idxs]
-    # preprocess_observation_(observations, self.bit_depth)  # Undo discretisation for visual observations
+    observations = torch.as_tensor(self.observations[vec_idxs].astype(np.float32))
+    if not self.symbolic_env:
+      preprocess_observation_(observations, self.bit_depth)  # Undo discretisation for visual observations
     return observations.reshape(L, n, *observations.shape[1:]), self.actions[vec_idxs].reshape(L, n, -1), self.rewards[vec_idxs].reshape(L, n), self.nonterminals[vec_idxs].reshape(L, n, 1)
 
   # Returns a batch of sequence chunks uniformly sampled from the memory

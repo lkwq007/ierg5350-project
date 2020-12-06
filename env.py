@@ -1,17 +1,12 @@
 import cv2
 import numpy as np
 import torch
-import gym
-
-import competitive_rl
-from competitive_rl.register import register_competitive_envs
-from competitive_rl.utils import DummyVecEnv, SubprocVecEnv
-from competitive_rl.utils.atari_wrappers import WrapPyTorch, MultipleFrameStack
-from competitive_rl import make_envs
-register_competitive_envs()
+from nes_py.wrappers import JoypadSpace
+import gym_tetris
+from gym_tetris.actions import MOVEMENT
 
 
-GYM_ENVS = ["cCarRacing-v0","cCarRacingDouble-v0",'Pendulum-v0', 'MountainCarContinuous-v0', 'Ant-v2', 'HalfCheetah-v2', 'Hopper-v2', 'Humanoid-v2', 'HumanoidStandup-v2', 'InvertedDoublePendulum-v2', 'InvertedPendulum-v2', 'Reacher-v2', 'Swimmer-v2', 'Walker2d-v2']
+GYM_ENVS = ['Pendulum-v0', 'MountainCarContinuous-v0', 'Ant-v2', 'HalfCheetah-v2', 'Hopper-v2', 'Humanoid-v2', 'HumanoidStandup-v2', 'InvertedDoublePendulum-v2', 'InvertedPendulum-v2', 'Reacher-v2', 'Swimmer-v2', 'Walker2d-v2']
 CONTROL_SUITE_ENVS = ['cartpole-balance', 'cartpole-swingup', 'reacher-easy', 'finger-spin', 'cheetah-run', 'ball_in_cup-catch', 'walker-walk','reacher-hard', 'walker-run', 'humanoid-stand', 'humanoid-walk', 'fish-swim', 'acrobot-swingup']
 CONTROL_SUITE_ACTION_REPEATS = {'cartpole': 8, 'reacher': 4, 'finger': 2, 'cheetah': 4, 'ball_in_cup': 6, 'walker': 2, 'humanoid': 2, 'fish': 2, 'acrobot':4}
 
@@ -21,17 +16,10 @@ def preprocess_observation_(observation, bit_depth):
   observation.div_(2 ** (8 - bit_depth)).floor_().div_(2 ** bit_depth).sub_(0.5)  # Quantise to given bit depth and centre
   observation.add_(torch.rand_like(observation).div_(2 ** bit_depth))  # Dequantise (to approx. match likelihood of PDF of continuous images vs. PMF of discrete images)
 
-def preprocess_observation_(observation, bit_depth=8):
-  observation.div_(255.0).sub_(0.5)  # Quantise to given bit depth and centre
-  # observation.add_(torch.rand_like(observation).div_(2 ** bit_depth))  # Dequantise (to approx. match likelihood of PDF of continuous images vs. PMF of discrete images)
-
 
 # Postprocess an observation for storage (from float32 numpy array [-0.5, 0.5] to uint8 numpy array [0, 255])
 def postprocess_observation(observation, bit_depth):
   return np.clip(np.floor((observation + 0.5) * 2 ** bit_depth) * 2 ** (8 - bit_depth), 0, 2 ** 8 - 1).astype(np.uint8)
-
-def postprocess_observation(observation, bit_depth=8):
-  return np.clip(np.floor((observation + 0.5) * 255.0), 0, 255).astype(np.uint8)
 
 
 def _images_to_observation(images, bit_depth):
@@ -41,7 +29,7 @@ def _images_to_observation(images, bit_depth):
 
 
 class ControlSuiteEnv():
-  def __init__(self, env, symbolic, seed, max_episode_length, action_repeat, bit_depth, notstack=False):
+  def __init__(self, env, symbolic, seed, max_episode_length, action_repeat, bit_depth):
     from dm_control import suite
     from dm_control.suite.wrappers import pixels
     domain, task = env.split('-')
@@ -103,21 +91,14 @@ class ControlSuiteEnv():
 
 
 class GymEnv():
-  def __init__(self, env, symbolic, seed, max_episode_length, action_repeat, bit_depth, notstack=False):
+  def __init__(self, env, symbolic, seed, max_episode_length, action_repeat, bit_depth):
+    import gym
     self.symbolic = symbolic
-    self.name = env
-    self._env = make_envs(
-            env_id=env,
-            seed=seed,
-            log_dir="tmp",
-            num_envs=1,
-            asynchronous=False,
-            resized_dim=42,
-            action_repeat=1
-        )
-    # self._env = gym.make(env)
+    # self._env = gym_tetris.make('TetrisA-v0')
     # self._env.seed(seed)
-    self.notstack=notstack
+    # self._env = JoypadSpace(self._env, MOVEMENT) 
+    self._env = gym.make(env)
+    self._env.seed(seed)
     self.max_episode_length = max_episode_length
     self.action_repeat = action_repeat
     self.bit_depth = bit_depth
@@ -125,31 +106,25 @@ class GymEnv():
   def reset(self):
     self.t = 0  # Reset internal timer
     state = self._env.reset()
-    # return _images_to_observation(self._env.render(mode='rgb_array'), self.bit_depth)
-    observation = torch.tensor(state,dtype=torch.float32)
-    observation=observation/255.0-0.5+torch.rand_like(observation)/255.0
-    # preprocess_observation_(observation)
-    if self.notstack:
-      observation=observation[:,3:4,:,:]
-    return observation
+    if self.symbolic:
+      return torch.tensor(state, dtype=torch.float32).unsqueeze(dim=0)
+    else:
+      return _images_to_observation(self._env.render(mode='rgb_array'), self.bit_depth)
   
   def step(self, action):
     action = action.detach().numpy()
     reward = 0
     for k in range(self.action_repeat):
-      state, reward_k, done, _ = self._env.step([action])
-      reward += reward_k[0][0]
-      done=done[0][0]
+      state, reward_k, done, _ = self._env.step(action)
+      reward += reward_k
       self.t += 1  # Increment internal timer
       done = done or self.t == self.max_episode_length
       if done:
         break
-    # observation = _images_to_observation(self._env.render(mode='rgb_array'), self.bit_depth)
-    observation =  torch.tensor(state,dtype=torch.float32)
-    # preprocess_observation_(observation)
-    observation=observation/255.0-0.5+torch.rand_like(observation)/255.0
-    if self.notstack:
-      observation=observation[:,3:4,:,:]
+    if self.symbolic:
+      observation = torch.tensor(state, dtype=torch.float32).unsqueeze(dim=0)
+    else:
+      observation = _images_to_observation(self._env.render(mode='rgb_array'), self.bit_depth)
     return observation, reward, done
 
   def render(self):
@@ -160,8 +135,7 @@ class GymEnv():
 
   @property
   def observation_size(self):
-    return (1, 96, 96) if self.notstack else (4,96,96)
-    # return self._env.observation_space.shape[0] if self.symbolic else (3, 64, 64)
+    return self._env.observation_space.shape[0] if self.symbolic else (3, 64, 64)
 
   @property
   def action_size(self):
@@ -172,11 +146,11 @@ class GymEnv():
     return torch.from_numpy(self._env.action_space.sample())
 
 
-def Env(env, symbolic, seed, max_episode_length, action_repeat, bit_depth, notstack=False):
+def Env(env, symbolic, seed, max_episode_length, action_repeat, bit_depth):
   if env in GYM_ENVS:
-    return GymEnv(env, symbolic, seed, max_episode_length, action_repeat, bit_depth, notstack)
+    return GymEnv(env, symbolic, seed, max_episode_length, action_repeat, bit_depth)
   elif env in CONTROL_SUITE_ENVS:
-    return ControlSuiteEnv(env, symbolic, seed, max_episode_length, action_repeat, bit_depth, notstack)
+    return ControlSuiteEnv(env, symbolic, seed, max_episode_length, action_repeat, bit_depth)
 
 
 # Wrapper for batching environments together
@@ -194,7 +168,7 @@ class EnvBatcher():
 
  # Steps/resets every environment and returns (observation, reward, done)
   def step(self, actions):
-    done_mask = torch.nonzero(torch.tensor(self.dones), as_tuple=False)[:, 0]  # Done mask to blank out observations and zero rewards for previously terminated environments
+    done_mask = torch.nonzero(torch.tensor(self.dones))[:, 0]  # Done mask to blank out observations and zero rewards for previously terminated environments
     observations, rewards, dones = zip(*[env.step(action) for env, action in zip(self.envs, actions)])
     dones = [d or prev_d for d, prev_d in zip(dones, self.dones)]  # Env should remain terminated if previously terminated
     self.dones = dones

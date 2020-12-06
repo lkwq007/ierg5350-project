@@ -1,9 +1,9 @@
 import torch
-from torch import nn
+from torch import jit
 
 
 # Model-predictive control planner with cross-entropy method and learned transition model
-class MPCPlanner(nn.Module):
+class MPCPlanner(jit.ScriptModule):
   __constants__ = ['action_size', 'planning_horizon', 'optimisation_iters', 'candidates', 'top_candidates']
 
   def __init__(self, action_size, planning_horizon, optimisation_iters, candidates, top_candidates, transition_model, reward_model):
@@ -14,7 +14,7 @@ class MPCPlanner(nn.Module):
     self.optimisation_iters = optimisation_iters
     self.candidates, self.top_candidates = candidates, top_candidates
 
-  # @jit.script_method
+  @jit.script_method
   def forward(self, belief, state):
     B, H, Z = belief.size(0), belief.size(1), state.size(1)
     belief, state = belief.unsqueeze(dim=1).expand(B, self.candidates, H).reshape(-1, H), state.unsqueeze(dim=1).expand(B, self.candidates, Z).reshape(-1, Z)

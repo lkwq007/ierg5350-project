@@ -151,3 +151,13 @@ class FreezeParameters:
   def __exit__(self, exc_type, exc_val, exc_tb):
       for i, param in enumerate(get_parameters(self.modules)):
           param.requires_grad = self.param_states[i]
+
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
