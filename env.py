@@ -1,9 +1,8 @@
 import cv2
 import numpy as np
 import torch
-from nes_py.wrappers import JoypadSpace
-import gym_tetris
-from gym_tetris.actions import MOVEMENT
+
+NES_ENVS = ['TetrisA-v0']
 
 GYM_ENVS = [
     'Pendulum-v0', 'MountainCarContinuous-v0', 'Ant-v2', 'HalfCheetah-v2',
@@ -47,10 +46,9 @@ def postprocess_observation(observation, bit_depth):
 
 
 def _images_to_observation(images, bit_depth):
-    images = torch.tensor(cv2.resize(images, (64, 64),
+    images = torch.FloatTensor(cv2.resize(images, (64, 64),
                                      interpolation=cv2.INTER_LINEAR).transpose(
-                                         2, 0, 1),
-                          dtype=torch.float32)  # Resize and put channel first
+                                         2, 0, 1))  # Resize and put channel first
     preprocess_observation_(
         images, bit_depth)  # Quantise, centre and dequantise inplace
     return images.unsqueeze(dim=0)  # Add batch dimension
@@ -137,14 +135,63 @@ class ControlSuiteEnv():
             np.random.uniform(spec.minimum, spec.maximum, spec.shape))
 
 
+class NesEnv():
+    def __init__(self, env, symbolic, seed, max_episode_length, action_repeat,
+                 bit_depth):
+        from nes_py.wrappers import JoypadSpace
+        import gym_tetris
+        from gym_tetris.actions import MOVEMENT
+
+        self._env = gym_tetris.make(env)
+        self._env.seed(seed)
+        self._env = JoypadSpace(self._env, MOVEMENT)
+        self.max_episode_length = max_episode_length
+        self.action_repeat = action_repeat
+        self.bit_depth = bit_depth
+
+    def reset(self):
+        self.t = 0  # Reset internal timer
+        state = self._env.reset()
+        observation = _images_to_observation(state, self.bit_depth) # NxCxHxW
+        return observation
+
+    def step(self, action):
+        action = action.detach().numpy()
+        reward = 0
+        state, done = None, None
+        for k in range(self.action_repeat):
+            state, reward_k, done, _ = self._env.step(action)
+            reward += reward_k
+            self.t += 1  # Increment internal timer
+            done = done or self.t == self.max_episode_length
+            if done:
+                break
+        observation = _images_to_observation(state, self.bit_depth)
+        return observation, reward, done
+
+    def render(self):
+        self._env.render()
+
+    def close(self):
+        self._env.close()
+
+    @property
+    def observation_size(self):
+        # self._env.observation_space.shape: H x W x C (240x256x3)
+        return (3, 240, 256)
+
+    @property
+    def action_size(self):
+        return self._env.action_space.n
+
+    def sample_random_action(self):
+        return torch.tensor(self._env.action_space.sample())
+
 class GymEnv():
     def __init__(self, env, symbolic, seed, max_episode_length, action_repeat,
                  bit_depth):
         import gym
         self.symbolic = symbolic
-        # self._env = gym_tetris.make('TetrisA-v0')
-        # self._env.seed(seed)
-        # self._env = JoypadSpace(self._env, MOVEMENT)
         self._env = gym.make(env)
         self._env.seed(seed)
         self.max_episode_length = max_episode_length
@@ -186,9 +233,7 @@ class GymEnv():
 
     @property
     def observation_size(self):
-        return self._env.observation_space.shape[0] if self.symbolic else (3,
-                                                                           64,
-                                                                           64)
+        return self._env.observation_space.shape[0] if self.symbolic else (3, 64, 64)
 
     @property
     def action_size(self):
@@ -206,6 +251,9 @@ def Env(env, symbolic, seed, max_episode_length, action_repeat, bit_depth):
     elif env in CONTROL_SUITE_ENVS:
         return ControlSuiteEnv(env, symbolic, seed, max_episode_length,
                                action_repeat, bit_depth)
+    elif env in NES_ENVS:
+        return NesEnv(env, symbolic, seed, max_episode_length, action_repeat,
+                      bit_depth)
 
 
 # Wrapper for batching environments together

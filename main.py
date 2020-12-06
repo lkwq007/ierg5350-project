@@ -8,7 +8,7 @@ from torch.distributions.kl import kl_divergence
 from torch.nn import functional as F
 from torchvision.utils import make_grid, save_image
 from tqdm import tqdm
-from env import CONTROL_SUITE_ENVS, Env, GYM_ENVS, EnvBatcher
+from env import CONTROL_SUITE_ENVS, Env, GYM_ENVS, EnvBatcher, NES_ENVS
 from memory import ExperienceReplay
 from models import bottle, Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, ActorModel
 from planner import MPCPlanner
@@ -30,8 +30,8 @@ parser.add_argument('--seed',
 parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
 parser.add_argument('--env',
                     type=str,
-                    default='Pendulum-v0',
-                    choices=GYM_ENVS + CONTROL_SUITE_ENVS,
+                    default='TetrisA-v0',
+                    choices=NES_ENVS + GYM_ENVS + CONTROL_SUITE_ENVS,
                     help='Gym/Control Suite environment')
 parser.add_argument('--symbolic-env',
                     type=str2bool,
