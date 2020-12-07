@@ -1,6 +1,7 @@
 from typing import Optional, List
 import torch
-from torch import jit, nn
+# from torch import jit, nn
+from torch import nn
 from torch.nn import functional as F
 import torch.distributions
 from torch.distributions import Normal, Categorical
@@ -8,8 +9,15 @@ from torch.distributions.transforms import Transform, TanhTransform
 from torch.distributions.transformed_distribution import TransformedDistribution
 import numpy as np
 
+from torch import Tensor
+# note that nn.Module is deprecated
+# https://discuss.pytorch.org/t/whats-the-difference-between-torch-nn-module-and-torch-jit-scriptmodule/64480
+# so I removed all nn.Module in this file and planner
+# By Yuan
 
 # Wraps the input tuple for a function to process a time x batch x features sequence in batch x features (assumes one output)
+
+
 def bottle(f, x_tuple):
     x_sizes = tuple(map(lambda x: x.size(), x_tuple))
     y = f(*map(lambda x: x[0].view(x[1][0] * x[1][1], *x[1][2:]),
@@ -19,7 +27,7 @@ def bottle(f, x_tuple):
     return output
 
 
-class TransitionModel(jit.ScriptModule):
+class TransitionModel(nn.Module):
     __constants__ = ['min_std_dev']
 
     def __init__(self,
@@ -28,7 +36,7 @@ class TransitionModel(jit.ScriptModule):
                  action_size,
                  hidden_size,
                  embedding_size,
-                 activation_function='relu',
+                 activation_function='elu',  # replaced by elu
                  min_std_dev=0.1):
         super().__init__()
         self.act_fn = getattr(F, activation_function)
@@ -57,7 +65,7 @@ class TransitionModel(jit.ScriptModule):
     # ps: -X-
     # b : -x--X--X--X--X--X-
     # s : -x--X--X--X--X--X-
-    @jit.script_method
+    # @jit.script_method
     def forward(
             self,
             prev_state: torch.Tensor,
@@ -129,7 +137,7 @@ class TransitionModel(jit.ScriptModule):
         return hidden
 
 
-class VisualObservationModel(jit.ScriptModule):
+class VisualObservationModel(nn.Module):
     __constants__ = ['embedding_size']
 
     def __init__(self,
@@ -141,15 +149,16 @@ class VisualObservationModel(jit.ScriptModule):
         self.act_fn = getattr(F, activation_function)
         self.embedding_size = embedding_size
         self.fc1 = nn.Linear(belief_size + state_size, embedding_size)
-        self.conv1 = nn.ConvTranspose2d(embedding_size, 128, 5, stride=2)
-        self.conv2 = nn.ConvTranspose2d(128, 64, 5, stride=2)
-        self.conv3 = nn.ConvTranspose2d(64, 32, 6, stride=2)
-        self.conv4 = nn.ConvTranspose2d(32, 3, 6, stride=2)
+        self.conv1 = nn.ConvTranspose2d(embedding_size, 256, 5, stride=2)
+        self.conv2 = nn.ConvTranspose2d(256, 128, 5, stride=2)
+        self.conv3 = nn.ConvTranspose2d(128, 64, 5, stride=2)
+        self.conv4 = nn.ConvTranspose2d(64, 32, 6, stride=2)
+        self.conv5 = nn.ConvTranspose2d(32, 3, 6, stride=2)
         self.modules = [
             self.fc1, self.conv1, self.conv2, self.conv3, self.conv4
         ]
 
-    @jit.script_method
+    # @jit.script_method
     def forward(self, belief, state):
         hidden = self.fc1(torch.cat([belief, state],
                                     dim=1))  # No nonlinearity here
@@ -157,7 +166,8 @@ class VisualObservationModel(jit.ScriptModule):
         hidden = self.act_fn(self.conv1(hidden))
         hidden = self.act_fn(self.conv2(hidden))
         hidden = self.act_fn(self.conv3(hidden))
-        observation = self.conv4(hidden)
+        hidden = self.act_fn(self.conv4(hidden))
+        observation = self.conv5(hidden)
         return observation
 
 
@@ -170,7 +180,7 @@ def ObservationModel(observation_size,
                                   activation_function)
 
 
-class RewardModel(jit.ScriptModule):
+class RewardModel(nn.Module):
     def __init__(self,
                  belief_size,
                  state_size,
@@ -184,7 +194,7 @@ class RewardModel(jit.ScriptModule):
         self.fc3 = nn.Linear(hidden_size, 1)
         self.modules = [self.fc1, self.fc2, self.fc3]
 
-    @jit.script_method
+    # @jit.script_method
     def forward(self, belief, state):
         x = torch.cat([belief, state], dim=1)
         hidden = self.act_fn(self.fc1(x))
@@ -193,7 +203,14 @@ class RewardModel(jit.ScriptModule):
         return reward
 
 
-class ValueModel(jit.ScriptModule):
+def ValueModel(belief_size, state_size, hidden_size, activation_function='relu', doubleQ=False):
+    if doubleQ:
+        return ValueModelDoubleQ(belief_size, state_size, hidden_size, activation_function)
+    else:
+        return ValueModelOriginal(belief_size, state_size, hidden_size, activation_function)
+
+
+class ValueModelOriginal(nn.Module):
     def __init__(self,
                  belief_size,
                  state_size,
@@ -207,7 +224,7 @@ class ValueModel(jit.ScriptModule):
         self.fc4 = nn.Linear(hidden_size, 1)
         self.modules = [self.fc1, self.fc2, self.fc3, self.fc4]
 
-    @jit.script_method
+    # @jit.script_method
     def forward(self, belief, state):
         x = torch.cat([belief, state], dim=1)
         hidden = self.act_fn(self.fc1(x))
@@ -217,7 +234,23 @@ class ValueModel(jit.ScriptModule):
         return reward
 
 
-class ActorModel(jit.ScriptModule):
+class ValueModelDoubleQ(nn.Module):
+    # note that double Q need exta modification in main.py
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.Q1 = ValueModelOriginal(*args, **kwargs)
+        self.Q2 = ValueModelOriginal(*args, **kwargs)
+        self.modules = self.Q1.modules+self.Q2.modules
+        # self.modules = [self.fc1, self.fc2, self.fc3, self.fc4]
+
+    # @jit.script_method
+    def forward(self, belief, state):
+        q1 = self.Q1(belief, state)
+        q2 = self.Q2(belief, state)
+        return q1, q2
+
+
+class ActorModel(nn.Module):
     def __init__(self,
                  belief_size,
                  state_size,
@@ -248,7 +281,7 @@ class ActorModel(jit.ScriptModule):
 
         self.modules = [self.fc1, self.fc2, self.fc3, self.fc4, self.fc5]
 
-    @jit.script_method
+    # @jit.script_method
     def forward(self, belief, state):
 
         x = torch.cat([belief, state], dim=1)
@@ -264,9 +297,11 @@ class ActorModel(jit.ScriptModule):
         actor_out = self.forward(belief, state)
         if self._dist == 'tanh_normal':
             # actor_out.size() == (N x (action_size * 2))
-            tmp = torch.tensor(self._init_std,
-                               device=actor_out.get_device())
-            raw_init_std = torch.log(torch.exp(tmp) - 1)
+            # replace the below workaround
+            raw_init_std = np.log(np.exp(self._init_std) - 1)
+            # tmp = torch.tensor(self._init_std,
+            #                    device=actor_out.get_device())
+            # raw_init_std = torch.log(torch.exp(tmp) - 1)
             action_mean, action_std_dev = torch.chunk(actor_out, 2, dim=1)
             action_mean = self._mean_scale * torch.tanh(
                 action_mean / self._mean_scale)
@@ -289,22 +324,24 @@ class ActorModel(jit.ScriptModule):
             return dist.sample()
 
 
-class VisualEncoder(jit.ScriptModule):
+class VisualEncoder(nn.Module):
     __constants__ = ['embedding_size']
 
     def __init__(self, embedding_size, activation_function='relu'):
         super().__init__()
         self.act_fn = getattr(F, activation_function)
+        # perhaps we need larger embedding_size
         self.embedding_size = embedding_size
-        self.conv1 = nn.Conv2d(3, 32, 4, stride=2)
-        self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
-        self.conv3 = nn.Conv2d(64, 128, 4, stride=2)
-        self.conv4 = nn.Conv2d(128, 256, 4, stride=2)
+        # kernel 4 seems strange
+        self.conv1 = nn.Conv2d(3, 32, 5, stride=2)
+        self.conv2 = nn.Conv2d(32, 64, 5, stride=3)
+        self.conv3 = nn.Conv2d(64, 128, 5, stride=2)
+        self.conv4 = nn.Conv2d(128, 256, 5, stride=2)
         self.fc = nn.Identity() if embedding_size == 1024 else nn.Linear(
             1024, embedding_size)
         self.modules = [self.conv1, self.conv2, self.conv3, self.conv4]
 
-    @jit.script_method
+    # @jit.script_method
     def forward(self, observation):
         hidden = self.act_fn(self.conv1(observation))
         hidden = self.act_fn(self.conv2(hidden))
@@ -401,7 +438,7 @@ class OneHotDist:
         indices = self._dist.sample()
         sample = self._one_hot(indices)
         probs = self._dist.probs
-        sample += (probs - probs.detach()).float() # make probs differentiable
+        sample += (probs - probs.detach()).float()  # make probs differentiable
         return sample
 
     def _one_hot(self, indices):
