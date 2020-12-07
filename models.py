@@ -80,20 +80,23 @@ class TransitionModel(nn.Module):
     '''
         # Create lists for hidden states (cannot use single tensor as buffer because autograd won't work with inplace writes)
         T = actions.size(0) + 1
-        beliefs, prior_states, prior_means, prior_std_devs, posterior_states, posterior_means, posterior_std_devs = [
-            torch.empty(0)
-        ] * T, [torch.empty(0)] * T, [torch.empty(0)] * T, [
-            torch.empty(0)
-        ] * T, [torch.empty(0)] * T, [torch.empty(0)] * T, [torch.empty(0)] * T
-        beliefs[0], prior_states[0], posterior_states[
-            0] = prev_belief, prev_state, prev_state
+        beliefs = [torch.empty(0)] * T
+        prior_states = [torch.empty(0)] * T
+        prior_means = [torch.empty(0)] * T
+        prior_std_devs = [torch.empty(0)] * T
+        posterior_states = [torch.empty(0)] * T
+        posterior_means = [torch.empty(0)] * T
+        posterior_std_devs = [torch.empty(0)] * T
+        beliefs[0] = prev_belief
+        prior_states[0] = prev_state
+        posterior_states[0] = prev_state
         # Loop over time sequence
         for t in range(T - 1):
-            _state = prior_states[
-                t] if observations is None else posterior_states[
-                    t]  # Select appropriate previous state
-            _state = _state if nonterminals is None else _state * nonterminals[
-                t]  # Mask if previous transition was terminal
+            # Select appropriate previous state
+            _state = prior_states[t] if observations is None else posterior_states[t]  
+            # Mask if previous transition was terminal
+            print(_state.size(), nonterminals[t].size())
+            _state = _state if nonterminals is None else _state * nonterminals[t]
             # Compute belief (deterministic hidden state)
             hidden = self.act_fn(
                 self.fc_embed_state_action(
@@ -200,6 +203,30 @@ class RewardModel(nn.Module):
         hidden = self.act_fn(self.fc1(x))
         hidden = self.act_fn(self.fc2(hidden))
         reward = self.fc3(hidden).squeeze(dim=1)
+        return reward
+
+
+class PcontModel(nn.Module):
+    def __init__(self,
+                 belief_size,
+                 state_size,
+                 hidden_size,
+                 activation_function='relu'):
+        super().__init__()
+        self.act_fn = getattr(F, activation_function)
+        self.fc1 = nn.Linear(belief_size + state_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.fc4 = nn.Linear(hidden_size, 1)
+        self.modules = [self.fc1, self.fc2, self.fc3, self.fc4]
+
+    # @jit.script_method
+    def forward(self, belief, state):
+        x = torch.cat([belief, state], dim=1)
+        hidden = self.act_fn(self.fc1(x))
+        hidden = self.act_fn(self.fc2(hidden))
+        hidden = self.act_fn(self.fc3(hidden))
+        reward = self.fc4(hidden).squeeze(dim=1)
         return reward
 
 

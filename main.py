@@ -136,7 +136,7 @@ parser.add_argument(
 )
 parser.add_argument('--global-kl-beta',
                     type=float,
-                    default=0,
+                    default=1.0,
                     metavar='βg',
                     help='Global KL weight (0 to disable)')
 parser.add_argument('--free-nats',
@@ -209,15 +209,15 @@ parser.add_argument('--expl_type',
                     help='Exploration Decay Init Value')
 parser.add_argument('--expl_amount',
                     type=float,
-                    default=0.3,
+                    default=0.4,
                     help='Exploration Decay Init Value')
 parser.add_argument('--expl_decay',
                     type=float,
-                    default=0.0,
+                    default=100000.0,
                     help='Exploration Decay Weight')
 parser.add_argument('--expl_min',
                     type=float,
-                    default=0.0,
+                    default=0.1,
                     help='Minimum Exploration Decay Value')
 parser.add_argument('--candidates',
                     type=int,

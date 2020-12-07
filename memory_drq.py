@@ -14,6 +14,7 @@ def preprocess_observation_(observation, bit_depth):
     observation.add_(
         torch.rand_like(observation).div_(2**bit_depth)
     )  # Dequantise (to approx. match likelihood of PDF of continuous images vs. PMF of discrete images)
+    return observation
 
 
 # Postprocess an observation for storage (from float32 numpy array [-0.5, 0.5] to uint8 numpy array [0, 255])

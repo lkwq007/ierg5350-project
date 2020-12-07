@@ -65,7 +65,7 @@ parser.add_argument('--overshooting-kl-beta', type=float, default=0, metavar='β
                     help='Latent overshooting KL weight for t > 1 (0 to disable)')
 parser.add_argument('--overshooting-reward-scale', type=float, default=0, metavar='R>1',
                     help='Latent overshooting reward prediction weight for t > 1 (0 to disable)')
-parser.add_argument('--global-kl-beta', type=float, default=0,
+parser.add_argument('--global-kl-beta', type=float, default=1.0,
                     metavar='βg', help='Global KL weight (0 to disable)')
 parser.add_argument('--free-nats', type=float, default=3,
                     metavar='F', help='Free nats')
@@ -94,11 +94,11 @@ parser.add_argument('--optimisation-iters', type=int, default=10,
                     metavar='I', help='Planning optimisation iterations')
 parser.add_argument('--expl_type', type=str,
                     default='epsilon_greedy', help='Exploration Decay Init Value')
-parser.add_argument('--expl_amount', type=float, default=0.3,
+parser.add_argument('--expl_amount', type=float, default=0.4,
                     help='Exploration Decay Init Value')
-parser.add_argument('--expl_decay', type=float, default=0.0,
+parser.add_argument('--expl_decay', type=float, default=100000.0,
                     help='Exploration Decay Weight')
-parser.add_argument('--expl_min', type=float, default=0.0,
+parser.add_argument('--expl_min', type=float, default=0.1,
                     help='Minimum Exploration Decay Value')
 parser.add_argument('--candidates', type=int, default=1000,
                     metavar='J', help='Candidate samples per iteration')
@@ -121,6 +121,8 @@ parser.add_argument('--render', action='store_true', help='Render environment')
 parser.add_argument('--image-pad', type=int, default=6,
                     metavar='PAD', help='For image aug')
 parser.add_argument('--doubleq', action='store_true', help='enable doubleQ')
+parser.add_argument('--pcont', type=str2bool, default=True, help='enable pcont')
+parser.add_argument('--pcont_scale', type=float, default=10.0, help='enable pcont')
 
 args = parser.parse_args()
 # Overshooting distance cannot be greater than chunk size
@@ -149,6 +151,7 @@ metrics = {
     'steps': [], 'episodes': [], 'train_rewards': [], 'test_episodes': [], 'test_rewards': [], 'observation_loss': [], 'reward_loss': [], 'kl_loss': [], 'actor_loss': [], 'value_loss': []
 }
 
+# Writer
 summary_name = results_dir + "/{}_{}_log"
 writer = SummaryWriter(summary_name.format(args.env, args.id))
 
@@ -168,7 +171,7 @@ elif not args.test:
         while not done:
             action = env.sample_random_action()
             next_observation, reward, done = env.step(action)
-            D.append(observation, next_observation, action, reward, done)
+            D.append(observation, action, reward, done)
             observation = next_observation
             t += 1
         metrics['steps'].append(t * args.action_repeat + (
@@ -201,6 +204,8 @@ actor_optimizer = optim.Adam(
     actor_model.parameters(), lr=0 if args.learning_rate_schedule != 0 else args.actor_learning_rate, eps=args.adam_epsilon)
 value_optimizer = optim.Adam(
     value_model.parameters(), lr=0 if args.learning_rate_schedule != 0 else args.value_learning_rate, eps=args.adam_epsilon)
+
+# load
 if args.models != '' and os.path.exists(args.models):
     model_dicts = torch.load(args.models)
     transition_model.load_state_dict(model_dicts['transition_model'])
@@ -210,12 +215,15 @@ if args.models != '' and os.path.exists(args.models):
     actor_model.load_state_dict(model_dicts['actor_model'])
     value_model.load_state_dict(model_dicts['value_model'])
     model_optimizer.load_state_dict(model_dicts['model_optimizer'])
+
+# planner
 if args.algo == "dreamer":
     print("DREAMER")
     planner = actor_model
 else:
     planner = MPCPlanner(env.action_size, args.planning_horizon, args.optimisation_iters,
                          args.candidates, args.top_candidates, transition_model, reward_model)
+
 global_prior = Normal(torch.zeros(2*args.batch_size, args.state_size, device=args.device), torch.ones(
     2*args.batch_size, args.state_size, device=args.device))  # Global prior N(0, I)
 # Allowed deviation in KL divergence
@@ -334,24 +342,22 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         # transition loss
         div = kl_divergence(Normal(posterior_means, posterior_std_devs), Normal(
             prior_means, prior_std_devs)).sum(dim=2)
-        kl_loss = torch.max(div, free_nats).mean(
-            dim=(0, 1)
-        )  # Note that normalisation by overshooting distance and weighting by overshooting distance cancel out
+        # Note that normalisation by overshooting distance and weighting by overshooting distance cancel out
+        kl_loss = torch.max(div, free_nats).mean(dim=(0, 1))  
         if args.global_kl_beta != 0:
             kl_loss += args.global_kl_beta * kl_divergence(
                 Normal(posterior_means, posterior_std_devs), global_prior).sum(dim=2).mean(dim=(0, 1))
         # Calculate latent overshooting objective for t > 0
         if args.overshooting_kl_beta != 0:
-            overshooting_vars = [
-            ]  # Collect variables for overshooting to process in batch
+            # Collect variables for overshooting to process in batch
+            overshooting_vars = []  
             for t in range(1, args.chunk_size - 1):
-                d = min(t + args.overshooting_distance,
-                        args.chunk_size - 1)  # Overshooting distance
+                # Overshooting distance
+                d = min(t + args.overshooting_distance,args.chunk_size - 1)  
                 # Use t_ and d_ to deal with different time indexing for latent states
-                t_, d_ = t - 1, d - 1
-                seq_pad = (
-                    0, 0, 0, 0, 0, t - d + args.overshooting_distance
-                )  # Calculate sequence padding so overshooting terms can be calculated in one batch
+                t_, d_ = t-1, d-1
+                # Calculate sequence padding so overshooting terms can be calculated in one batch
+                seq_pad = (0, 0, 0, 0, 0, t - d + args.overshooting_distance)  
                 # Store (0) actions, (1) nonterminals, (2) rewards, (3) beliefs, (4) prior states, (5) posterior means, (6) posterior standard deviations and (7) sequence masks
                 overshooting_vars.append(
                     (F.pad(actions[t:d], seq_pad), F.pad(nonterminals[t:d], seq_pad), F.pad(rewards_gt[t:d], seq_pad[2:]), beliefs[t_], prior_states[t_], F.pad(posterior_means[t_ + 1:d_ + 1].detach(), seq_pad), F.pad(posterior_std_devs[t_ + 1:d_ + 1].detach(), seq_pad, value=1), F.pad(
@@ -461,9 +467,9 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     print("Data collection")
     with torch.no_grad():
         observation, total_reward = env.reset(), 0
-        belief, posterior_state, action = torch.zeros(
-            1, args.belief_size, device=args.device), torch.zeros(1, args.state_size, device=args.device), torch.zeros(
-            1, env.action_size, device=args.device)
+        belief = torch.zeros(1, args.belief_size, device=args.device)
+        posterior_state = torch.zeros(1, args.state_size, device=args.device)
+        action = torch.zeros(1, env.action_size, device=args.device)
         pbar = tqdm(range(args.max_episode_length // args.action_repeat))
         for t in pbar:
             # print("step",t)
@@ -502,9 +508,9 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         with torch.no_grad():
             observation, total_rewards, video_frames = test_envs.reset(
             ), np.zeros((args.test_episodes, )), []
-            belief, posterior_state, action = torch.zeros(
-                args.test_episodes, args.belief_size, device=args.device), torch.zeros(
-                    args.test_episodes, args.state_size, device=args.device), torch.zeros(args.test_episodes, env.action_size, device=args.device)
+            belief = torch.zeros(args.test_episodes, args.belief_size, device=args.device)
+            posterior_state = torch.zeros(args.test_episodes, args.state_size, device=args.device)
+            action = torch.zeros(args.test_episodes, env.action_size, device=args.device)
             pbar = tqdm(range(args.max_episode_length // args.action_repeat))
             for t in pbar:
                 belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(
