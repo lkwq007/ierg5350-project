@@ -2,8 +2,9 @@ import cv2
 import numpy as np
 import torch
 from torch.nn import functional as F
+from env_utils import make_envs
 
-NES_ENVS = ['TetrisA-v0']
+NES_ENVS = ['TetrisA-v0', 'TetrisA-v1', 'TetrisB-v0', 'TetrisB-v1']
 
 GYM_ENVS = [
     'Pendulum-v0', 'MountainCarContinuous-v0', 'Ant-v2', 'HalfCheetah-v2',
@@ -29,7 +30,7 @@ CONTROL_SUITE_ACTION_REPEATS = {
     'acrobot': 4
 }
 
-
+# that would be quite slow
 # Preprocesses an observation inplace (from float32 Tensor [0, 255] to [-0.5, 0.5])
 def preprocess_observation_(observation, bit_depth):
     observation.div_(2**(8 - bit_depth)).floor_().div_(2**bit_depth).sub_(
@@ -46,7 +47,7 @@ def postprocess_observation(observation, bit_depth):
         2**8 - 1).astype(np.uint8)
 
 
-def _images_to_observation(images, bit_depth, img_size=(3, 64, 64)):
+def _images_to_observation(images, bit_depth, img_size=(3, 128, 128)):
     images = torch.FloatTensor(
         cv2.resize(images, (img_size[2], img_size[1]),
                    interpolation=cv2.INTER_LINEAR).transpose(
@@ -104,7 +105,7 @@ class ControlSuiteEnv():
 
     @property
     def observation_size(self):
-        return (3, 64, 64)
+        return (3, 128, 128)
 
     @property
     def action_size(self):
@@ -162,7 +163,7 @@ class NesEnv():
     @property
     def observation_size(self):
         # self._env.observation_space.shape: H x W x C (240x256x3)
-        return (3, 64, 64)  # C x H x W
+        return (3, 128, 128)  # C x H x W
         # return (3, 120, 128) # C x H x W # TODO: Lixin
 
     @property
@@ -212,7 +213,7 @@ class GymEnv():
 
     @property
     def observation_size(self):
-        return (3, 64, 64)
+        return (3, 128, 128)
 
     @property
     def action_size(self):
