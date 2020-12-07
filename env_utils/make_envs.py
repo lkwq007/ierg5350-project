@@ -32,6 +32,9 @@ import warnings
 import gym
 from gym import spaces
 
+from nes_py.wrappers import JoypadSpace
+from gym_tetris.actions import MOVEMENT, SIMPLE_MOVEMENT
+
 from .dummy_vec_env import DummyVecEnv
 from .subproc_vec_env import SubprocVecEnv
 
@@ -74,7 +77,7 @@ class WrapPyTorch(gym.ObservationWrapper):
 
 
 def make_envs(env_id="cPong-v0", seed=0, log_dir="data", num_envs=3, asynchronous=False, resized_dim=42, frame_stack=4,
-              action_repeat=None):
+              action_repeat=None, simple_movement=False):
     """
     Create CUHKPong-v0, CUHKPongDouble-v0 or CartPole-v0 environments. If
     num_envs > 1, put them into different processes.
@@ -98,6 +101,8 @@ def make_envs(env_id="cPong-v0", seed=0, log_dir="data", num_envs=3, asynchronou
         def _make():
             env = gym.make(env_id)
             env.seed(seed+rank)
+            move = SIMPLE_MOVEMENT if simple_movement else MOVEMENT
+            env = JoypadSpace(env, move)
             env = WrapPyTorch(env)
             return env
         return _make
