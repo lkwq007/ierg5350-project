@@ -112,6 +112,7 @@ def make_env(cfg):
     env = JoypadSpace(env_, MOVEMENT)
     env = MaxAndSkipEnv(env)
     # env._max_episode_steps = env_._max_episode_steps
+    max_episode_steps = 10000
     env = WrapPyTorch(env, max_episode_steps)
     obs = env.reset()
     print(obs.shape)
