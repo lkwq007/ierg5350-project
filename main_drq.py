@@ -3,14 +3,14 @@ import os
 import numpy as np
 import torch
 from torch import nn, optim
-from torch.distributions import Normal, Categorical
+from torch.distributions import Normal, Categorical, Bernoulli
 from torch.distributions.kl import kl_divergence
 from torch.nn import functional as F
 from torchvision.utils import make_grid, save_image
 from tqdm import tqdm
 from env import CONTROL_SUITE_ENVS, Env, GYM_ENVS, EnvBatcher, NES_ENVS
 from memory_drq import ExperienceReplay
-from models import bottle, Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, ActorModel
+from models import bottle, Encoder, ObservationModel, RewardModel, PcontModel, TransitionModel, ValueModel, ActorModel
 from planner import MPCPlanner
 from utils import *
 from torch.utils.tensorboard import SummaryWriter
@@ -59,6 +59,8 @@ observation_model = ObservationModel(
     env.observation_size, args.belief_size, args.state_size, args.embedding_size, args.cnn_activation_function).to(device)
 reward_model = RewardModel(
     args.belief_size, args.state_size, args.hidden_size, args.dense_activation_function).to(device)
+pcont_model = PcontModel(
+    args.belief_size, args.state_size, args.hidden_size, args.dense_activation_function).to(device)
 encoder = Encoder(env.observation_size, args.embedding_size,
                   args.cnn_activation_function).to(device)
 actor_model = ActorModel(args.belief_size, args.state_size, args.hidden_size, env.action_size,
@@ -67,10 +69,14 @@ actor_model = ActorModel(args.belief_size, args.state_size, args.hidden_size, en
 value_model = ValueModel(args.belief_size, args.state_size, args.hidden_size,
                          args.dense_activation_function, doubleQ=args.doubleq).to(device)
 
-# Optimizer
+# Param List
 param_list = list(transition_model.parameters()) + list(
     observation_model.parameters()) + list(reward_model.parameters()) + list(
         encoder.parameters())
+if args.pcont:
+    param_list += list(pcont_model.parameters())
+
+# Optimizer
 model_optimizer = optim.Adam(
     param_list, lr=0 if args.learning_rate_schedule != 0 else args.model_learning_rate, eps=args.adam_epsilon)
 actor_optimizer = optim.Adam(
@@ -84,10 +90,14 @@ if args.models != '' and os.path.exists(args.models):
     transition_model.load_state_dict(model_dicts['transition_model'])
     observation_model.load_state_dict(model_dicts['observation_model'])
     reward_model.load_state_dict(model_dicts['reward_model'])
+    if args.pcont:
+        pcont_model.load_state_dict(model_dicts['pcont_model'])
     encoder.load_state_dict(model_dicts['encoder'])
     actor_model.load_state_dict(model_dicts['actor_model'])
     value_model.load_state_dict(model_dicts['value_model'])
     model_optimizer.load_state_dict(model_dicts['model_optimizer'])
+    actor_optimizer.load_state_dict(model_dicts['actor_optimizer'])
+    value_optimizer.load_state_dict(model_dicts['value_optimizer'])
 
 # planner
 if args.algo == "dreamer":
@@ -181,7 +191,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     losses = []
     model_modules = transition_model.modules + encoder.modules + \
         observation_model.modules + reward_model.modules
-
+    if args.pcont:
+        model_modules += pcont_model.modules
     print("[Dreamer-DrQ]training loop", args.id, "")
     for s in tqdm(range(args.collect_interval)):
         # Draw sequence chunks {(o_t, a_t, r_t+1, terminal_t+1)} ~ D uniformly at random from the dataset (including terminal flags)
@@ -217,6 +228,15 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         else:
             reward_loss = F.mse_loss(bottle(
                 reward_model, (beliefs, posterior_states)), rewards_gt[:-1], reduction='none').mean(dim=(0, 1))        
+        
+        # pcont loss
+        pcont_loss = 0.0
+        if args.pcont:
+            pcont_pred = Bernoulli(bottle(pcont_model, (beliefs, posterior_states)))
+            pcont_target = args.discount * nonterminals
+            pcont_loss += -torch.mean(pcont_pred.log_prob(pcont_target))
+            pcont_loss *= args.pcont_scale
+
         # transition loss
         div = kl_divergence(Normal(posterior_means, posterior_std_devs), Normal(
             prior_means, prior_std_devs)).sum(dim=2)
@@ -230,7 +250,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 group['lr'] = min(
                     group['lr'] + args.model_learning_rate /
                     args.model_learning_rate_schedule, args.model_learning_rate)
-        model_loss = observation_loss + reward_loss + kl_loss
+        
+        model_loss = observation_loss + reward_loss + kl_loss + pcont_loss
 
         # Dreamer implementation: actor loss calculation and optimization
         # shall we use both states?
@@ -246,9 +267,17 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 reward_model, (imged_beliefs, imged_prior_states))
             value_pred = bottle(
                 value_model, (imged_beliefs, imged_prior_states))
+            if args.pcont:
+                pcont = Bernoulli(bottle(pcont_model, (imged_beliefs, imged_prior_states))).mean
+            else:
+                pcont = args.discount * torch.ones_like(imged_reward)
+
         returns = lambda_return(
-            imged_reward, value_pred, bootstrap=value_pred[-1], discount=args.discount, lambda_=args.disclam)
-        actor_loss = -torch.mean(returns)
+            imged_reward[:-1], value_pred[:-1], pcont[:-1],
+            bootstrap=value_pred[-1], lambda_=args.disclam)
+        discount = torch.cat([torch.ones_like(pcont[:1]), pcont[:-2]])
+        discount = torch.cumprod(discount, 0).detach()
+        actor_loss = -torch.mean(discount * returns)
 
         # Dreamer implementation: value loss calculation and optimization
         with torch.no_grad():
@@ -334,6 +363,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         encoder.eval()
         actor_model.eval()
         value_model.eval()
+        if args.pcont:
+            pcont_model.eval()
         # Initialise parallelised test environments
         test_envs = EnvBatcher(Env, (args.env, args.seed, args.max_episode_length,
                                      args.action_repeat, args.bit_depth), {}, args.test_episodes)
@@ -380,6 +411,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         encoder.train()
         actor_model.train()
         value_model.train()
+        if args.pcont:
+            pcont_model.train()
         # Close test environments
         test_envs.close()
 
@@ -414,6 +447,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             'actor_optimizer': actor_optimizer.state_dict(), 
             'value_optimizer': value_optimizer.state_dict()
         }
+        if args.pcont:
+            state_dict['pcont_model'] = pcont_model.state_dict()
         torch.save(state_dict, os.path.join(results_dir, 'models_%d.pth' % episode))
         if args.checkpoint_experience:
             torch.save(

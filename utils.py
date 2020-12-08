@@ -132,23 +132,23 @@ def imagine_ahead(prev_state,
     return imagined_traj
 
 
-def lambda_return(imged_reward,
-                  value_pred,
-                  bootstrap,
-                  discount=0.99,
-                  lambda_=0.95):
+def lambda_return(imged_reward : torch.Tensor,
+                  value_pred : torch.Tensor,
+                  pcont : torch.Tensor,
+                  bootstrap : torch.Tensor,
+                  lambda_ : float):
     # Setting lambda=1 gives a discounted Monte Carlo return.
     # Setting lambda=0 gives a fixed 1-step return.
     next_values = torch.cat([value_pred[1:], bootstrap[None]], 0)
-    discount_tensor = discount * torch.ones_like(imged_reward)  #pcont
-    inputs = imged_reward + discount_tensor * next_values * (1 - lambda_)
+    inputs = imged_reward + pcont * next_values * (1 - lambda_)
     last = bootstrap
     indices = reversed(range(len(inputs)))
     outputs = []
     for index in indices:
-        inp, disc = inputs[index], discount_tensor[index]
+        inp, disc = inputs[index], pcont[index]
         last = inp + disc * lambda_ * last
         outputs.append(last)
+    # TODO: need to check
     outputs = list(reversed(outputs))
     outputs = torch.stack(outputs, 0)
     returns = outputs

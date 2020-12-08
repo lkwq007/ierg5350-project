@@ -45,7 +45,7 @@ parser.add_argument('--batch_size', type=int, default=50,
                     metavar='B', help='Batch size')
 parser.add_argument('--chunk_size', type=int, default=50,
                     metavar='L', help='Chunk size')
-parser.add_argument('--worldmodel_LogProbLoss', action='store_true',
+parser.add_argument('--worldmodel_LogProbLoss', type=str2bool, default=True,
                     help='use LogProb loss for observation_model and reward_model training')
 parser.add_argument('--global_kl_beta', type=float, default=1.0,
                     metavar='βg', help='Global KL weight (0 to disable)')

@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import torch.distributions
-from torch.distributions import Normal, Categorical
+from torch.distributions import Normal, Categorical, Bernoulli
 from torch.distributions.transforms import Transform, TanhTransform
 from torch.distributions.transformed_distribution import TransformedDistribution
 import numpy as np
@@ -95,7 +95,6 @@ class TransitionModel(nn.Module):
             # Select appropriate previous state
             _state = prior_states[t] if observations is None else posterior_states[t]  
             # Mask if previous transition was terminal
-            print(_state.size(), nonterminals[t].size())
             _state = _state if nonterminals is None else _state * nonterminals[t]
             # Compute belief (deterministic hidden state)
             hidden = self.act_fn(
@@ -226,8 +225,8 @@ class PcontModel(nn.Module):
         hidden = self.act_fn(self.fc1(x))
         hidden = self.act_fn(self.fc2(hidden))
         hidden = self.act_fn(self.fc3(hidden))
-        reward = self.fc4(hidden).squeeze(dim=1)
-        return reward
+        pcont = self.fc4(hidden).squeeze(dim=1)
+        return pcont
 
 
 def ValueModel(belief_size, state_size, hidden_size, activation_function='relu', doubleQ=False):
