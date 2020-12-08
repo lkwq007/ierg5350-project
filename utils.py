@@ -230,3 +230,18 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
+
+def setup_my_seed (args):
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available() and not args.disable_cuda:
+        torch.cuda.manual_seed(args.seed)
+
+def get_my_device(args):
+    if torch.cuda.is_available() and not args.disable_cuda:
+        print("using CUDA")
+        device = torch.device('cuda:%d' % args.gpu_no)
+    else:
+        print("using CPU")
+        device = torch.device('cpu')
+    return device
