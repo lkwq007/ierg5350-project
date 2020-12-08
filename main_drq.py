@@ -240,7 +240,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         # transition loss
         div = kl_divergence(Normal(posterior_means, posterior_std_devs), Normal(
             prior_means, prior_std_devs)).sum(dim=2)
-        kl_loss = torch.max(div, free_nats).mean(dim=(0, 1))  
+        kl_loss = args.kl_scale * torch.max(div, free_nats).mean(dim=(0, 1))
         if args.global_kl_beta != 0:
             kl_loss += args.global_kl_beta * kl_divergence(
                 Normal(posterior_means, posterior_std_devs), global_prior).sum(dim=2).mean(dim=(0, 1))
@@ -260,7 +260,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             actor_beliefs = beliefs.detach()
         with FreezeParameters(model_modules):
             imagination_traj = imagine_ahead(
-                actor_states, actor_beliefs, actor_model, transition_model, args.planning_horizon)
+                args, actor_states, actor_beliefs, actor_model, transition_model)
         imged_beliefs, imged_prior_states, imged_prior_means, imged_prior_std_devs = imagination_traj
         with FreezeParameters(model_modules + value_model.modules):
             imged_reward = bottle(

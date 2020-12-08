@@ -81,11 +81,11 @@ def write_video(frames, title, path=''):
     writer.release()
 
 
-def imagine_ahead(prev_state,
+def imagine_ahead(args,
+                  prev_state,
                   prev_belief,
                   policy,
-                  transition_model,
-                  planning_horizon=12):
+                  transition_model):
     '''
   imagine_ahead is the function to draw the imaginary tracjectory using the dynamics model, actor, critic.
   Input: current state (posterior), current belief (hidden), policy, transition_model  # torch.Size([50, 30]) torch.Size([50, 200]) 
@@ -97,10 +97,13 @@ def imagine_ahead(prev_state,
     prev_state = flatten(prev_state)
 
     # Create lists for hidden states (cannot use single tensor as buffer because autograd won't work with inplace writes)
-    T = planning_horizon
-    beliefs, prior_states, prior_means, prior_std_devs = [
-        torch.empty(0)
-    ] * T, [torch.empty(0)] * T, [torch.empty(0)] * T, [torch.empty(0)] * T
+    T = args.planning_horizon
+
+    beliefs =  [torch.empty(0)] * T
+    prior_states = [torch.empty(0)] * T
+    prior_means = [torch.empty(0)] * T
+    prior_std_devs = [torch.empty(0)] * T
+
     beliefs[0], prior_states[0] = prev_belief, prev_state
 
     # Loop over time sequence

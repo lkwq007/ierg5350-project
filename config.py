@@ -47,7 +47,7 @@ parser.add_argument('--chunk_size', type=int, default=50,
                     metavar='L', help='Chunk size')
 parser.add_argument('--worldmodel_LogProbLoss', type=str2bool, default=True,
                     help='use LogProb loss for observation_model and reward_model training')
-parser.add_argument('--global_kl_beta', type=float, default=1.0,
+parser.add_argument('--global_kl_beta', type=float, default=0,
                     metavar='βg', help='Global KL weight (0 to disable)')
 parser.add_argument('--free_nats', type=float, default=3,
                     metavar='F', help='Free nats')
@@ -105,6 +105,7 @@ parser.add_argument('--image_pad', type=int, default=6,
 parser.add_argument('--doubleq', action='store_true', help='enable doubleQ')
 parser.add_argument('--pcont', type=str2bool, default=True, help='enable pcont')
 parser.add_argument('--pcont_scale', type=float, default=10.0, help='enable pcont')
+parser.add_argument('--kl_scale', type=float, default=0.1, help='enable pcont')
 
 class Args(object):
     def __init__(self, _parser=parser) -> None:
