@@ -283,10 +283,10 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         with torch.no_grad():
             value_beliefs = imged_beliefs.detach()
             value_prior_states = imged_prior_states.detach()
-            target_return = returns.detach()
+            target = returns.detach()
         value_dist = Normal(
-            bottle(value_model, (value_beliefs, value_prior_states)), 1)  # detach the input tensor from the transition network.
-        value_loss = -value_dist.log_prob(target_return).mean(dim=(0, 1))
+            bottle(value_model, (value_beliefs, value_prior_states))[:-1], 1) 
+        value_loss = -(discount * value_dist.log_prob(target)).mean(dim=(0, 1))
         
         # Update model parameters
         model_optimizer.zero_grad()
