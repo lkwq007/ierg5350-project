@@ -20,8 +20,40 @@ from video import VideoRecorder
 
 torch.backends.cudnn.benchmark = True
 
+class MaxAndSkipEnv(gym.Wrapper):
+    def __init__(self, env, skip=4):
+        """Return only every `skip`-th frame"""
+        gym.Wrapper.__init__(self, env)
+        # most recent raw observations (for max pooling across time steps)
+        self._obs_buffer = np.zeros((2,)+env.observation_space.shape, dtype=np.uint8)
+        self._skip       = skip
+
+    def step(self, action):
+        """Repeat action, sum reward, and max over last observations."""
+        total_reward = 0.0
+        done = None
+        for i in range(self._skip):
+            if i==0:
+                act=action
+            else:
+                act=0
+            obs, reward, done, info = self.env.step(act)
+            if i == self._skip - 2: self._obs_buffer[0] = obs
+            if i == self._skip - 1: self._obs_buffer[1] = obs
+            total_reward += reward
+            if done:
+                break
+        # Note that the observation on the done=True frame
+        # doesn't matter
+        max_frame = self._obs_buffer.max(axis=0)
+
+        return max_frame, total_reward, done, info
+
+    def reset(self, **kwargs):
+        return self.env.reset(**kwargs)
+
 class WrapPyTorch(gym.ObservationWrapper):
-    def __init__(self, env=None):
+    def __init__(self, env=None, max_episode_steps=10000):
         super(WrapPyTorch, self).__init__(env)
         obs_shape = self.observation_space.shape
         self.observation_space = spaces.Box(
@@ -29,7 +61,7 @@ class WrapPyTorch(gym.ObservationWrapper):
             self.observation_space.high[0, 0, 0],
             [obs_shape[2], obs_shape[0], obs_shape[1]],
             dtype=self.observation_space.dtype)
-        self._max_episode_steps = 10000
+        self._max_episode_steps = max_episode_steps
         if isinstance(self.env.unwrapped.observation_space, spaces.Tuple):
             self.observation_space = spaces.Tuple(
                 [self.observation_space, self.observation_space])
@@ -78,11 +110,12 @@ def make_env(cfg):
     # env = gym.make("CarRacing-v0")
     env_ = gym_tetris.make('TetrisA-v0')
     env = JoypadSpace(env_, MOVEMENT)
+    env = MaxAndSkipEnv(env)
     # env._max_episode_steps = env_._max_episode_steps
-    env = WrapPyTorch(env)
+    env = WrapPyTorch(env, max_episode_steps)
     obs = env.reset()
     print(obs.shape)
-    env.seed(cfg.seed)
+    # env.seed(cfg.seed)
 
     env = utils.FrameStack(env, k=cfg.frame_stack)
 

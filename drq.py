@@ -90,7 +90,7 @@ class Actor(nn.Module):
 
         self.log_std_bounds = log_std_bounds
         self.trunk = utils.mlp(self.encoder.feature_dim, hidden_dim,
-                               2 * action_shape[0], hidden_depth)
+                               action_shape[0], hidden_depth)
 
         self.outputs = dict()
         self.apply(utils.weight_init)
@@ -98,17 +98,17 @@ class Actor(nn.Module):
     def forward(self, obs, detach_encoder=False):
         obs = self.encoder(obs, detach=detach_encoder)
 
-        mu, log_std = self.trunk(obs).chunk(2, dim=-1)
+        mu = self.trunk(obs)
 
         # constrain log_std inside [log_std_min, log_std_max]
-        log_std = torch.tanh(log_std)
-        log_std_min, log_std_max = self.log_std_bounds
-        log_std = log_std_min + 0.5 * (log_std_max - log_std_min) * (log_std +
+        # log_std = torch.tanh(log_std)
+        # log_std_min, log_std_max = self.log_std_bounds
+        # log_std = log_std_min + 0.5 * (log_std_max - log_std_min) * (log_std +
                                                                      1)
-        std = log_std.exp()
+        # std = log_std.exp()
 
         self.outputs['mu'] = mu
-        self.outputs['std'] = std
+        self.outputs['std'] = 0
 
         # dist = utils.SquashedNormal(mu, std)
         dist=Categorical(logits=mu)
