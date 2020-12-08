@@ -4,10 +4,11 @@ import os
 import pickle as pkl
 import sys
 import time
-
+import gym
+from gym import spaces
 import numpy as np
 
-import dmc2gym
+# import dmc2gym
 import hydra
 import torch
 import torch.nn as nn
@@ -18,6 +19,36 @@ from replay_buffer import ReplayBuffer
 from video import VideoRecorder
 
 torch.backends.cudnn.benchmark = True
+
+class WrapPyTorch(gym.ObservationWrapper):
+    def __init__(self, env=None):
+        super(WrapPyTorch, self).__init__(env)
+        obs_shape = self.observation_space.shape
+        self.observation_space = spaces.Box(
+            self.observation_space.low[0, 0, 0],
+            self.observation_space.high[0, 0, 0],
+            [obs_shape[2], obs_shape[0], obs_shape[1]],
+            dtype=self.observation_space.dtype)
+        self._max_episode_steps = 10000
+        if isinstance(self.env.unwrapped.observation_space, spaces.Tuple):
+            self.observation_space = spaces.Tuple(
+                [self.observation_space, self.observation_space])
+
+    def observation(self, observation):
+        if isinstance(observation, tuple):
+            return tuple(self.parse_single_frame(f) for f in observation)
+        elif isinstance(observation, dict):
+            return {k: self.parse_single_frame(f) for k, f in observation.items()}
+        else:
+            return self.parse_single_frame(observation)
+
+    def parse_single_frame(self, frame):
+        assert frame.ndim == 3
+        return frame.transpose(2, 0, 1)
+
+from nes_py.wrappers import JoypadSpace
+import gym_tetris
+from gym_tetris.actions import MOVEMENT
 
 
 def make_env(cfg):
@@ -35,21 +66,29 @@ def make_env(cfg):
     # per dreamer: https://github.com/danijar/dreamer/blob/02f0210f5991c7710826ca7881f19c64a012290c/wrappers.py#L26
     camera_id = 2 if domain_name == 'quadruped' else 0
 
-    env = dmc2gym.make(domain_name=domain_name,
-                       task_name=task_name,
-                       seed=cfg.seed,
-                       visualize_reward=False,
-                       from_pixels=True,
-                       height=cfg.image_size,
-                       width=cfg.image_size,
-                       frame_skip=cfg.action_repeat,
-                       camera_id=camera_id)
+#     env = dmc2gym.make(domain_name=domain_name,
+#                        task_name=task_name,
+#                        seed=cfg.seed,
+#                        visualize_reward=False,
+#                        from_pixels=True,
+#                        height=cfg.image_size,
+#                        width=cfg.image_size,
+#                        frame_skip=cfg.action_repeat,
+#                        camera_id=camera_id)
+    # env = gym.make("CarRacing-v0")
+    env_ = gym_tetris.make('TetrisA-v0')
+    env = JoypadSpace(env_, MOVEMENT)
+    # env._max_episode_steps = env_._max_episode_steps
+    env = WrapPyTorch(env)
+    obs = env.reset()
+    print(obs.shape)
+    env.seed(cfg.seed)
 
     env = utils.FrameStack(env, k=cfg.frame_stack)
 
     env.seed(cfg.seed)
-    assert env.action_space.low.min() >= -1
-    assert env.action_space.high.max() <= 1
+    # assert env.action_space.low.min() >= -1
+    # assert env.action_space.high.max() <= 1
 
     return env
 
@@ -72,10 +111,11 @@ class Workspace(object):
         self.env = make_env(cfg)
 
         cfg.agent.params.obs_shape = self.env.observation_space.shape
-        cfg.agent.params.action_shape = self.env.action_space.shape
+        print(self.env.action_space.shape)
+        cfg.agent.params.action_shape = (self.env.action_space.n,)
         cfg.agent.params.action_range = [
-            float(self.env.action_space.low.min()),
-            float(self.env.action_space.high.max())
+            0,
+            12
         ]
         self.agent = hydra.utils.instantiate(cfg.agent)
 
@@ -99,6 +139,7 @@ class Workspace(object):
             while not done:
                 with utils.eval_mode(self.agent):
                     action = self.agent.act(obs, sample=False)
+                # print(acion.shape)
                 obs, reward, done, info = self.env.step(action)
                 self.video_recorder.record(self.env)
                 episode_reward += reward
