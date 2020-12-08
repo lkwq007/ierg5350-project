@@ -166,21 +166,25 @@ class Workspace(object):
         average_episode_reward = 0
         for episode in range(self.cfg.num_eval_episodes):
             obs = self.env.reset()
-            self.video_recorder.init(enabled=(episode == 0))
+            # self.video_recorder.init(enabled=(episode == 0))
             done = False
             episode_reward = 0
             episode_step = 0
+            print(episode)
             while not done:
                 with utils.eval_mode(self.agent):
                     action = self.agent.act(obs, sample=False)
                 # print(acion.shape)
+                action=action[0]
                 obs, reward, done, info = self.env.step(action)
-                self.video_recorder.record(self.env)
+                # self.video_recorder.record(self.env)
                 episode_reward += reward
                 episode_step += 1
+                if episode_step>10000:
+                    break
 
             average_episode_reward += episode_reward
-            self.video_recorder.save(f'{self.step}.mp4')
+            # self.video_recorder.save(f'{self.step}.mp4')
         average_episode_reward /= self.cfg.num_eval_episodes
         self.logger.log('eval/episode_reward', average_episode_reward,
                         self.step)
@@ -215,11 +219,13 @@ class Workspace(object):
                 self.logger.log('train/episode', episode, self.step)
 
             # sample action for data collection
-            if self.step < self.cfg.num_seed_steps:
+            if self.step >= self.cfg.num_seed_steps:
                 action = self.env.action_space.sample()
+                # action=np.array([action])
             else:
                 with utils.eval_mode(self.agent):
                     action = self.agent.act(obs, sample=True)
+                    action=action[()]
 
             # run training update
             if self.step >= self.cfg.num_seed_steps:

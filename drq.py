@@ -16,7 +16,7 @@ class Encoder(nn.Module):
 
         assert len(obs_shape) == 3
         self.num_layers = 4
-        self.num_filters = 64
+        self.num_filters = 32
         self.output_dim = 35
         self.output_logits = False
         self.feature_dim = feature_dim
@@ -129,9 +129,9 @@ class Critic(nn.Module):
 
         self.encoder = hydra.utils.instantiate(encoder_cfg)
 
-        self.Q1 = utils.mlp(self.encoder.feature_dim + action_shape[0],
+        self.Q1 = utils.mlp(self.encoder.feature_dim + 1,
                             hidden_dim, 1, hidden_depth)
-        self.Q2 = utils.mlp(self.encoder.feature_dim + action_shape[0],
+        self.Q2 = utils.mlp(self.encoder.feature_dim + 1,
                             hidden_dim, 1, hidden_depth)
 
         self.outputs = dict()
@@ -140,7 +140,7 @@ class Critic(nn.Module):
     def forward(self, obs, action, detach_encoder=False):
         assert obs.size(0) == action.size(0)
         obs = self.encoder(obs, detach=detach_encoder)
-
+        action=action.view(-1,1)
         obs_action = torch.cat([obs, action], dim=-1)
         q1 = self.Q1(obs_action)
         q2 = self.Q2(obs_action)
@@ -225,7 +225,7 @@ class DRQAgent(object):
                       next_obs_aug, not_done, logger, step):
         with torch.no_grad():
             dist = self.actor(next_obs)
-            next_action = dist.rsample()
+            next_action = dist.sample()
             log_prob = dist.log_prob(next_action).sum(-1, keepdim=True)
             target_Q1, target_Q2 = self.critic_target(next_obs, next_action)
             target_V = torch.min(target_Q1,
@@ -233,7 +233,7 @@ class DRQAgent(object):
             target_Q = reward + (not_done * self.discount * target_V)
 
             dist_aug = self.actor(next_obs_aug)
-            next_action_aug = dist_aug.rsample()
+            next_action_aug = dist_aug.sample()
             log_prob_aug = dist_aug.log_prob(next_action_aug).sum(-1,
                                                                   keepdim=True)
             target_Q1, target_Q2 = self.critic_target(next_obs_aug,
@@ -266,7 +266,7 @@ class DRQAgent(object):
     def update_actor_and_alpha(self, obs, logger, step):
         # detach conv filters, so we don't update them with the actor loss
         dist = self.actor(obs, detach_encoder=True)
-        action = dist.rsample()
+        action = dist.sample()
         log_prob = dist.log_prob(action).sum(-1, keepdim=True)
         # detach conv filters, so we don't update them with the actor loss
         actor_Q1, actor_Q2 = self.critic(obs, action, detach_encoder=True)
