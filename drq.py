@@ -16,20 +16,21 @@ class Encoder(nn.Module):
 
         assert len(obs_shape) == 3
         self.num_layers = 4
-        self.num_filters = 32
+        self.num_filters = 64
         self.output_dim = 35
         self.output_logits = False
         self.feature_dim = feature_dim
-
+        print(obs_shape)
         self.convs = nn.ModuleList([
             nn.Conv2d(obs_shape[0], self.num_filters, 3, stride=2),
+            nn.Conv2d(self.num_filters, self.num_filters, 3, stride=2),
+            nn.Conv2d(self.num_filters, self.num_filters, 3, stride=2),
             nn.Conv2d(self.num_filters, self.num_filters, 3, stride=1),
-            nn.Conv2d(self.num_filters, self.num_filters, 3, stride=1),
-            nn.Conv2d(self.num_filters, self.num_filters, 3, stride=1)
+            nn.Conv2d(self.num_filters, self.num_filters, 1, stride=1)
         ])
 
         self.head = nn.Sequential(
-            nn.Linear(self.num_filters * 35 * 35, self.feature_dim),
+            nn.Linear(self.num_filters * 29 * 27, self.feature_dim),
             nn.LayerNorm(self.feature_dim))
 
         self.outputs = dict()
@@ -45,11 +46,12 @@ class Encoder(nn.Module):
             conv = torch.relu(self.convs[i](conv))
             self.outputs['conv%s' % (i + 1)] = conv
 
-        h = conv.view(conv.size(0), -1)
+        h = conv.reshape(conv.size(0), -1)
         return h
 
     def forward(self, obs, detach=False):
         h = self.forward_conv(obs)
+        # print(h.shape)
 
         if detach:
             h = h.detach()
@@ -76,6 +78,7 @@ class Encoder(nn.Module):
         for i in range(self.num_layers):
             logger.log_param(f'train_encoder/conv{i + 1}', self.convs[i], step)
 
+from torch.distributions import Categorical
 
 class Actor(nn.Module):
     """torch.distributions implementation of an diagonal Gaussian policy."""
@@ -107,7 +110,8 @@ class Actor(nn.Module):
         self.outputs['mu'] = mu
         self.outputs['std'] = std
 
-        dist = utils.SquashedNormal(mu, std)
+        # dist = utils.SquashedNormal(mu, std)
+        dist=Categorical(logits=mu)
         return dist
 
     def log(self, logger, step):
@@ -212,9 +216,10 @@ class DRQAgent(object):
         obs = torch.FloatTensor(obs).to(self.device)
         obs = obs.unsqueeze(0)
         dist = self.actor(obs)
-        action = dist.sample() if sample else dist.mean
-        action = action.clamp(*self.action_range)
-        assert action.ndim == 2 and action.shape[0] == 1
+        # using discrete action space
+        action = dist.sample() if sample else dist.probs.argmax(dim=-1, keepdim=True)
+        # action = action.clamp(*self.action_range)
+        # assert action.ndim == 2 and action.shape[0] == 1
         return utils.to_np(action[0])
 
     def update_critic(self, obs, obs_aug, action, reward, next_obs,
