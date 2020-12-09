@@ -41,7 +41,7 @@ agent:
     encoder_cfg: ${encoder}
     critic_cfg: ${critic}
     actor_cfg: ${actor}
-    discount: 0.99
+    discount: 1.0
     init_temperature: 0.1
     lr: ${lr}
     actor_update_frequency: 2

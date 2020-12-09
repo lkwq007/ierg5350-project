@@ -19,11 +19,11 @@ class VideoRecorder(object):
         self.frames = []
         self.enabled = self.save_dir is not None and enabled
 
-    def record(self, env):
+    def record(self, obs):
         if self.enabled:
             # removed incompatible kwargs for tetris
-            frame = env.render(mode='rgb_array')
-            self.frames.append(frame)
+            # frame = env.render(mode='rgb_array')
+            self.frames.append(obs.transpose(1,2,0)[:,:,0:3])
 
     def save(self, file_name):
         if self.enabled:

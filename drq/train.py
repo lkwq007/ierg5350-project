@@ -76,7 +76,7 @@ class WrapPyTorch(gym.ObservationWrapper):
 
     def parse_single_frame(self, frame):
         assert frame.ndim == 3
-        return frame.transpose(2, 0, 1)
+        return np.array(frame).transpose(2, 0, 1)
 
 from nes_py.wrappers import JoypadSpace
 import gym_tetris
@@ -178,7 +178,7 @@ class Workspace(object):
                 # print(acion.shape)
                 action=action[0]
                 obs, reward, done, info = self.env.step(action)
-                self.video_recorder.record(self.env)
+                self.video_recorder.record(obs)
                 episode_reward += reward
                 episode_step += 1
                 if episode_step>10000:
