@@ -110,17 +110,18 @@ def make_env(cfg):
     # env = gym.make("CarRacing-v0")
     env_ = gym_tetris.make('TetrisA-v0')
     env = JoypadSpace(env_, MOVEMENT)
-    env = MaxAndSkipEnv(env)
+    # env = MaxAndSkipEnv(env)
     # env._max_episode_steps = env_._max_episode_steps
     max_episode_steps = 10000
     env = WrapPyTorch(env, max_episode_steps)
+    env.seed(cfg.seed)
+    # print(env.ram)
     obs = env.reset()
     print(obs.shape)
     # env.seed(cfg.seed)
 
     env = utils.FrameStack(env, k=cfg.frame_stack)
-
-    env.seed(cfg.seed)
+    print("Init env done")
     # assert env.action_space.low.min() >= -1
     # assert env.action_space.high.max() <= 1
 
@@ -166,7 +167,7 @@ class Workspace(object):
         average_episode_reward = 0
         for episode in range(self.cfg.num_eval_episodes):
             obs = self.env.reset()
-            # self.video_recorder.init(enabled=(episode == 0))
+            self.video_recorder.init(enabled=(episode == 0))
             done = False
             episode_reward = 0
             episode_step = 0
@@ -177,14 +178,14 @@ class Workspace(object):
                 # print(acion.shape)
                 action=action[0]
                 obs, reward, done, info = self.env.step(action)
-                # self.video_recorder.record(self.env)
+                self.video_recorder.record(self.env)
                 episode_reward += reward
                 episode_step += 1
                 if episode_step>10000:
                     break
 
             average_episode_reward += episode_reward
-            # self.video_recorder.save(f'{self.step}.mp4')
+            self.video_recorder.save(f'{self.step}.mp4')
         average_episode_reward /= self.cfg.num_eval_episodes
         self.logger.log('eval/episode_reward', average_episode_reward,
                         self.step)

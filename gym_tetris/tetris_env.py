@@ -47,6 +47,7 @@ class TetrisEnv(NESEnv):
         reward_score: bool = False,
         reward_lines: bool = True,
         penalize_height: bool = True,
+        skip_level: bool= True
     ) -> None:
         """
         Initialize a new Tetris environment.
@@ -69,6 +70,8 @@ class TetrisEnv(NESEnv):
         self._current_lines = 0
         self._penalize_height = penalize_height
         self._current_height = 0
+        # if true, start from level 19
+        self.skip_level = skip_level
         # reset the emulator, skip the start screen, and backup the state
         self.reset()
         self._skip_start_screen()
@@ -78,6 +81,11 @@ class TetrisEnv(NESEnv):
         """Seed the random number generator."""
         random.seed(seed)
         return [seed]
+    
+    def set_level(self,level):
+        assert 0<=level<256
+        # note that the speed level cannot affect the current dropping piece
+        self.ram[0x0064] = level
 
     def _read_bcd(self, address, length, little_endian=True):
         """
@@ -185,14 +193,40 @@ class TetrisEnv(NESEnv):
         """Press and release start to skip the start screen."""
         # generate a random number for the Tetris RNG
         seed = random.randint(0, 255), random.randint(0, 255)
-        # skip garbage screens
-        while self.ram[0x00C0] in {0, 1, 2, 3}:
-            # seed the random number generator
-            self.ram[0x0017:0x0019] = seed
-            self._frame_advance(8)
-            if self._b_type:
-                self._frame_advance(128)
-            self._frame_advance(0)
+        # if skip_level, start from level 19
+        if self.skip_level:
+            # skip garbage screens
+            while self.ram[0x00C0] in {0, 1, 2}:
+                # seed the random number generator
+                self.ram[0x0017:0x0019] = seed
+                self._frame_advance(8)
+                if self._b_type:
+                    self._frame_advance(128)
+                self._frame_advance(0)
+            # 0x00C0 = 3 for level selecting
+            while self.ram[0x00C0] in {3}:
+                self.ram[0x0017:0x0019] = seed
+                for i in range(20):
+                    self._frame_advance(128)
+                    self._frame_advance(0)
+                    # self.ram[0x0017:0x0019] = seed
+                    # import matplotlib.pyplot as plt
+                    # used for debugging
+                    # print("Level select x")
+                    # plt.imshow(self.screen)
+                    # plt.show()
+                self._frame_advance(1)
+                self._frame_advance(8|1)
+                self._frame_advance(1)
+        else:
+            # skip garbage screens
+            while self.ram[0x00C0] in {0, 1, 2}:
+                # seed the random number generator
+                self.ram[0x0017:0x0019] = seed
+                self._frame_advance(8)
+                if self._b_type:
+                    self._frame_advance(128)
+                self._frame_advance(0)
 
     # MARK: nes-py API calls
 
