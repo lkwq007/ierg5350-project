@@ -136,7 +136,7 @@ class NesEnv():
         self.t = 0  # Reset internal timer
         state = self._env.reset()
         # hack the memory of the nes env, setting level to 29
-        self._env.ram[0x0064]=29
+        # self._env.ram[0x0064]=29
         # skip some frames
         for i in range(85):
             state,r,d,i=self._env.step(0)
@@ -148,6 +148,7 @@ class NesEnv():
         action = action.argmax().item()  # convert onehot action to int
         reward = 0
         state, done = None, None
+        total=3 if self._env.ram[0x0068]<2 else 1
         for k in range(3):
             state, reward_k, done, _ = self._env.step(action if k==0 else 0)
             reward += reward_k

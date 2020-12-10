@@ -180,14 +180,15 @@ elif not args.test:
             x=postprocess_observation(observation.numpy(),args.bit_depth)
             cv2.imshow("Tetris",x[0].transpose(1,2,0))
             key=cv2.waitKey()
-            z=mapping[key]
+            if key==27:
+                break
+            idx=mapping[key]
             action=np.zeros((6,))
-            action[z]=1
+            action[idx]=1
             # action = env.sample_random_action()
             next_observation, reward, done = env.step(action)
-            D.append((observation, action, reward, done))
+            D.append((x, action, reward, done))
             observation = next_observation
             t += 1
         print(len(D))
-        exit(0)
     torch.save(D, os.path.join(".", 'experience.pth'))  # Warning: will fail with MemoryError with large memory sizes
