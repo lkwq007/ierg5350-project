@@ -129,6 +129,10 @@ parser.add_argument('--pcont', type=str2bool, default=True, help='enable pcont')
 parser.add_argument('--pcont_scale', type=float, default=10.0, help='enable pcont')
 parser.add_argument('--kl_scale', type=float, default=0.1, help='enable pcont')
 
+parser.add_argument('--small_image', type=str2bool, default=True, help='using 96x96 image')
+parser.add_argument('--add_reward', type=str2bool, default=False, help='additional reward')
+parser.add_argument('--experience_list', type=str, default='', metavar='ELL', help='Load experience replay')
+
 class Args(object):
     def __init__(self, _parser=parser) -> None:
         super().__init__()
@@ -151,7 +155,7 @@ args=Args()
 # device = get_my_device(args)
 # Initialise training environment and experience replay memory
 env = Env(args.env, args.seed, args.max_episode_length, args.action_repeat,
-          args.bit_depth)
+          args.bit_depth, args)
 # test_envs = EnvBatcher(Env, (args.env, args.seed, args.max_episode_length,
 #                                 args.action_repeat, args.bit_depth), {},
 #                                args.test_episodes)
@@ -178,7 +182,7 @@ elif not args.test:
         observation, done, t = env.reset(), False, 0
         while not done:
             x=postprocess_observation(observation.numpy(),args.bit_depth)
-            cv2.imshow("Tetris",x[0].transpose(1,2,0))
+            cv2.imshow("Tetris",cv2.resize(x[0].transpose(1,2,0),(512,512)))
             key=cv2.waitKey()
             if key==27:
                 break

@@ -133,7 +133,7 @@ class NesEnv():
         self.bit_depth = bit_depth
         self.small_image = args.small_image
         self.add_reward = args.add_reward
-        self.typeb = "B" in env
+        self.typeb = "1" in env
         self.acc = 0.03 if self.typeb else 3
         if not args.add_reward:
             self.acc=0
