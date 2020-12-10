@@ -91,7 +91,7 @@ parser.add_argument('--test_interval', type=int, default=25,
                     metavar='I', help='Test interval (episodes)')
 parser.add_argument('--test_episodes', type=int, default=10,
                     metavar='E', help='Number of test episodes')
-parser.add_argument('--checkpoint_interval', type=int, default=50,
+parser.add_argument('--checkpoint_interval', type=int, default=25,
                     metavar='I', help='Checkpoint interval (episodes)')
 parser.add_argument('--checkpoint_experience',
                     action='store_true', help='Checkpoint experience replay')
@@ -100,12 +100,16 @@ parser.add_argument('--models', type=str, default='',
 parser.add_argument('--experience_replay', type=str, default='',
                     metavar='ER', help='Load experience replay')
 parser.add_argument('--render', action='store_true', help='Render environment')
-parser.add_argument('--image_pad', type=int, default=6,
+parser.add_argument('--image_pad', type=int, default=4,
                     metavar='PAD', help='For image aug')
 parser.add_argument('--doubleq', action='store_true', help='enable doubleQ')
 parser.add_argument('--pcont', type=str2bool, default=True, help='enable pcont')
 parser.add_argument('--pcont_scale', type=float, default=10.0, help='enable pcont')
 parser.add_argument('--kl_scale', type=float, default=0.1, help='enable pcont')
+
+parser.add_argument('--small_image', type=str2bool, default=False, help='using 96x96 image')
+parser.add_argument('--add_reward', type=str2bool, default=False, help='additional reward')
+parser.add_argument('--experience_list', type=str, default='', metavar='ELL', help='Load experience replay')
 
 class Args(object):
     def __init__(self, _parser=parser) -> None:

@@ -30,9 +30,9 @@ metrics = {
 
 # Initialise training environment and experience replay memory
 env = Env(args.env, args.seed, args.max_episode_length, args.action_repeat,
-          args.bit_depth)
+          args.bit_depth, args)
 test_envs = EnvBatcher(Env, (args.env, args.seed, args.max_episode_length,
-                                args.action_repeat, args.bit_depth), {},
+                                args.action_repeat, args.bit_depth, args), {},
                                args.test_episodes)
 # test_envs2 = make_envs()
 if args.experience_replay != '' and os.path.exists(args.experience_replay):
@@ -61,14 +61,14 @@ transition_model = TransitionModel(
     args.embedding_size, args.dense_activation_function).to(device)
 observation_model = ObservationModel(
     env.observation_size, args.belief_size, args.state_size,
-    args.embedding_size, args.cnn_activation_function).to(device)
+    args.embedding_size, args.cnn_activation_function, args.small_image).to(device)
 reward_model = RewardModel(
     args.belief_size, args.state_size, args.hidden_size,
     args.dense_activation_function).to(device)
 pcont_model = PcontModel(
     args.belief_size, args.state_size, args.hidden_size, args.dense_activation_function).to(device)
 encoder = Encoder(env.observation_size, args.embedding_size,
-                  args.cnn_activation_function).to(device)
+                  args.cnn_activation_function, args.small_image).to(device)
 actor_model = ActorModel(args.belief_size, args.state_size, args.hidden_size,
                          env.action_size, args.action_dist,
                          args.dense_activation_function).to(device)

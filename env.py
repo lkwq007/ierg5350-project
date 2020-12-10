@@ -120,7 +120,7 @@ class ControlSuiteEnv():
 
 class NesEnv():
     def __init__(self, env, seed, max_episode_length, action_repeat,
-                 bit_depth):
+                 bit_depth, args):
         from nes_py.wrappers import JoypadSpace
         import gym_tetris
         from gym_tetris.actions import SIMPLE_MOVEMENT
@@ -131,6 +131,12 @@ class NesEnv():
         self.max_episode_length = max_episode_length
         self.action_repeat = action_repeat
         self.bit_depth = bit_depth
+        self.small_image = args.small_image
+        self.add_reward = args.add_reward
+        self.typeb = "B" in env
+        self.acc = 0.03 if self.typeb else 3
+        if not args.add_reward:
+            self.acc=0
 
     def reset(self):
         self.t = 0  # Reset internal timer
@@ -150,17 +156,22 @@ class NesEnv():
         state, done = None, None
         total=3 if self._env.ram[0x0068]<2 else 1
         for k in range(3):
-            state, reward_k, done, _ = self._env.step(action if k==0 else 0)
+            state, reward_k, done, info = self._env.step(action if k==0 else 0)
             reward += reward_k
             self.t += 1  # Increment internal timer
             done = done or self.t == self.max_episode_length
             if done:
                 break
+        flag=False
         while self._env.ram[0x0065]>0 and self._env.ram[0x0068]>=2 and not done:
             flag=True
             o,r,d,info=self._env.step(0)
             reward+=r
             done=d or done
+        if flag:
+            reward+=self.acc
+        if info['board_height']>10:
+            reward-=self.acc
         observation = _images_to_observation(state, self.bit_depth,
                                              self.observation_size)
         return observation, reward, done
@@ -174,7 +185,7 @@ class NesEnv():
     @property
     def observation_size(self):
         # self._env.observation_space.shape: H x W x C (240x256x3)
-        return (3, 128, 128)  # C x H x W
+        return (3, 96, 96) if self.small_image else (3, 128, 128)  # C x H x W
         # return (3, 120, 128) # C x H x W # TODO: Lixin
 
     @property
@@ -235,14 +246,14 @@ class GymEnv():
         return torch.from_numpy(self._env.action_space.sample())
 
 
-def Env(env, seed, max_episode_length, action_repeat, bit_depth):
+def Env(env, seed, max_episode_length, action_repeat, bit_depth, args):
     if env in GYM_ENVS:
         return GymEnv(env, seed, max_episode_length, action_repeat, bit_depth)
     elif env in CONTROL_SUITE_ENVS:
         return ControlSuiteEnv(env, seed, max_episode_length, action_repeat,
                                bit_depth)
     elif env in NES_ENVS:
-        return NesEnv(env, seed, max_episode_length, action_repeat, bit_depth)
+        return NesEnv(env, seed, max_episode_length, action_repeat, bit_depth, args)
 
 
 # Wrapper for batching environments together
@@ -251,6 +262,8 @@ class EnvBatcher():
         self.n = n
         self.envs = [env_class(*env_args, **env_kwargs) for _ in range(n)]
         self.dones = [True] * n
+        self.small_image=env_args[-1].small_image
+        self.shp=(1,3,96,96) if self.small_image else (1,3,128,128)
 
     # Resets every environment and returns observation
     def reset(self):
@@ -267,7 +280,7 @@ class EnvBatcher():
         )[:,
           0]  # Done mask to blank out observations and zero rewards for previously terminated environments
         observations, rewards, dones = zip(
-            *[env.step(action) if not d else (torch.zeros(1,3,128,128), 0,True) for env, action, d in zip(self.envs, actions, self.dones)])
+            *[env.step(action) if not d else (torch.zeros(*self.shp), 0,True) for env, action, d in zip(self.envs, actions, self.dones)])
         dones = [d or prev_d for d, prev_d in zip(dones, self.dones)
                  ]  # Env should remain terminated if previously terminated
         self.dones = dones

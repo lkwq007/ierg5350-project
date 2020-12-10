@@ -31,6 +31,9 @@ metrics = {
 # Init training env 
 env = Env(args.env, args.seed, args.max_episode_length,
           args.action_repeat, args.bit_depth)
+# Initialise parallelised test environments
+test_envs = EnvBatcher(Env, (args.env, args.seed, args.max_episode_length,
+                                     args.action_repeat, args.bit_depth), {}, args.test_episodes)
 # Init replay buffer
 if args.experience_replay != '' and os.path.exists(args.experience_replay):
     D = torch.load(args.experience_replay)
@@ -67,7 +70,7 @@ actor_model = ActorModel(args.belief_size, args.state_size, args.hidden_size, en
                          args.action_dist, args.dense_activation_function).to(device)
 # enabling doubleQ?
 value_model = ValueModel(args.belief_size, args.state_size, args.hidden_size,
-                         args.dense_activation_function, doubleQ=args.doubleq).to(device)
+                         args.dense_activation_function, doubleQ=False).to(device)
 
 # Param List
 param_list = list(transition_model.parameters()) + list(
@@ -207,10 +210,11 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         # Create initial belief and state for time t = 0
         init_belief, init_state = torch.zeros(args.batch_size*2, args.belief_size, device=device), torch.zeros(
             args.batch_size*2, args.state_size, device=device)
+        nonterminals_both=torch.cat((nonterminals,nonterminals),dim=1)
         # Update belief/state using posterior from previous belief/state, previous action and current observation (over entire sequence at once)
         # obs_aug is used for state estimation
         beliefs, prior_states, prior_means, prior_std_devs, posterior_states, posterior_means, posterior_std_devs = transition_model(
-            init_state, actions[:-1], init_belief, bottle(encoder, (obs_aug_both[1:], )), nonterminals[:-1])
+            init_state, actions[:-1], init_belief, bottle(encoder, (obs_aug_both[1:], )), nonterminals_both[:-1])
         # we used the orginal observation for reconstruction
         if args.worldmodel_LogProbLoss:
             observation_dist = Normal(
@@ -233,7 +237,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         pcont_loss = 0.0
         if args.pcont:
             pcont_pred = Bernoulli(bottle(pcont_model, (beliefs, posterior_states)))
-            pcont_target = args.discount * nonterminals
+            pcont_target = args.discount * nonterminals_both
             pcont_loss += -torch.mean(pcont_pred.log_prob(pcont_target))
             pcont_loss *= args.pcont_scale
 
@@ -365,9 +369,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         value_model.eval()
         if args.pcont:
             pcont_model.eval()
-        # Initialise parallelised test environments
-        test_envs = EnvBatcher(Env, (args.env, args.seed, args.max_episode_length,
-                                     args.action_repeat, args.bit_depth), {}, args.test_episodes)
 
         with torch.no_grad():
             observation = test_envs.reset()
@@ -413,8 +414,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         value_model.train()
         if args.pcont:
             pcont_model.train()
-        # Close test environments
-        test_envs.close()
+
 
     # Summary
     writer.add_scalar(
@@ -457,3 +457,5 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
 
 # Close training environment
 env.close()
+# Close test environments
+test_envs.close()
