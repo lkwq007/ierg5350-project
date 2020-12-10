@@ -220,7 +220,7 @@ class TetrisEnv(NESEnv):
                 self._frame_advance(1)
         else:
             # skip garbage screens
-            while self.ram[0x00C0] in {0, 1, 2}:
+            while self.ram[0x00C0] in {0, 1, 2, 3}:
                 # seed the random number generator
                 self.ram[0x0017:0x0019] = seed
                 self._frame_advance(8)

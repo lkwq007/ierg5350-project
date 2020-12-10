@@ -25,3 +25,12 @@ SIMPLE_MOVEMENT = [
     ['left'],
     ['down'],
 ]
+
+# no down
+SIMPLE_MOVEMENT2 = [
+    ['NOOP'],
+    ['A'],
+    ['B'],
+    ['right'],
+    ['left'],
+]
