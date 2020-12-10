@@ -395,6 +395,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1),
             if done:
                 pbar.close()
                 break
+        if not done and args.max_episode_length<10000:
+            args.max_episode_length+=100
 
         # Update and plot train reward metrics
         metrics['steps'].append(t + metrics['steps'][-1])

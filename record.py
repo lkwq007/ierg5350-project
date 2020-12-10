@@ -1,8 +1,30 @@
+# from config import Args
+import os
+import numpy as np
+import torch
+from torch import nn, optim
+from torch.distributions import Normal, Categorical, Bernoulli
+from torch.distributions.kl import kl_divergence
+from torch.nn import functional as F
+from torchvision.utils import make_grid, save_image
+from env import CONTROL_SUITE_ENVS, Env, GYM_ENVS, EnvBatcher, NES_ENVS, postprocess_observation
+from memory import ExperienceReplay
+from models import bottle, Encoder, ObservationModel, RewardModel, PcontModel, TransitionModel, ValueModel, ActorModel
+# from utils import *
+import cv2
 import argparse
 from env import CONTROL_SUITE_ENVS, GYM_ENVS, NES_ENVS
-from utils import str2bool
 from torch.nn import functional as F
-
+# Setup
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 parser = argparse.ArgumentParser(description='PlaNet or Dreamer')
 parser.add_argument('--algo', type=str, default='dreamer',
                     help='planet or dreamer')
@@ -123,4 +145,49 @@ class Args(object):
 
         if self.doubleq:
             print("DrQ is used in this training")
-        
+
+args=Args()
+# setup_my_seed(args)
+# device = get_my_device(args)
+# Initialise training environment and experience replay memory
+env = Env(args.env, args.seed, args.max_episode_length, args.action_repeat,
+          args.bit_depth)
+# test_envs = EnvBatcher(Env, (args.env, args.seed, args.max_episode_length,
+#                                 args.action_repeat, args.bit_depth), {},
+#                                args.test_episodes)
+# test_envs2 = make_envs()
+D=[]
+SIMPLE_MOVEMENT = [
+    ['NOOP'],
+    ['A'],
+    ['B'],
+    ['right'],
+    ['left'],
+    ['down'],
+]
+if args.experience_replay != '' and os.path.exists(args.experience_replay):
+    D = torch.load(args.experience_replay)
+    metrics['steps'], metrics['episodes'] = [D.steps] * D.episodes, list(
+        range(1, D.episodes + 1))
+elif not args.test:
+    # D = ExperienceReplay(args.experience_size, env.observation_size,
+    #                      env.action_size, args.bit_depth, torch.device("cpu"))
+    # Initialise dataset D with S random seed episodes
+    mapping={ord("a"):4,ord("d"):3,ord("s"):5,ord("q"):2,ord("e"):1,32:0,ord("l"):0}
+    for s in range(1, args.seed_episodes + 1):
+        observation, done, t = env.reset(), False, 0
+        while not done:
+            x=postprocess_observation(observation.numpy(),args.bit_depth)
+            cv2.imshow("Tetris",x[0].transpose(1,2,0))
+            key=cv2.waitKey()
+            z=mapping[key]
+            action=np.zeros((6,))
+            action[z]=1
+            # action = env.sample_random_action()
+            next_observation, reward, done = env.step(action)
+            D.append((observation, action, reward, done))
+            observation = next_observation
+            t += 1
+        print(len(D))
+        exit(0)
+    torch.save(D, os.path.join(".", 'experience.pth'))  # Warning: will fail with MemoryError with large memory sizes
