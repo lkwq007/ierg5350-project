@@ -8,7 +8,7 @@ from torch.distributions.kl import kl_divergence
 from torch.nn import functional as F
 from torchvision.utils import make_grid, save_image
 from tqdm import tqdm
-from env import CONTROL_SUITE_ENVS, Env, GYM_ENVS, EnvBatcher, NES_ENVS
+from env import CONTROL_SUITE_ENVS, Env, GYM_ENVS, EnvBatcher, NES_ENVS, preprocess_observation_
 from memory import ExperienceReplay
 from models import bottle, Encoder, ObservationModel, RewardModel, PcontModel, TransitionModel, ValueModel, ActorModel
 from planner import MPCPlanner
@@ -42,6 +42,8 @@ if args.experience_replay != '' and os.path.exists(args.experience_replay):
 elif not args.test:
     D = ExperienceReplay(args.experience_size, env.observation_size,
                          env.action_size, args.bit_depth, device)
+    if args.experience_list:
+        args.seed_episodes=2
     # Initialise dataset D with S random seed episodes
     for s in range(1, args.seed_episodes + 1):
         observation, done, t = env.reset(), False, 0
@@ -54,6 +56,22 @@ elif not args.test:
         metrics['steps'].append(t * args.action_repeat + (
             0 if len(metrics['steps']) == 0 else metrics['steps'][-1]))
         metrics['episodes'].append(s)
+    if args.experience_list:
+        from torch.nn import functional as F
+        elst=torch.load(args.experience_list)
+        done_cnt=0
+        for (obs_, action, reward, done) in elst:
+            if done:
+                done_cnt+=1
+                print(f"Loading {done_cnt}")
+            observation_ = torch.from_numpy(obs_.astype(np.float32))
+            preprocess_observation_(observation_, args.bit_depth)
+            action=torch.tensor(action)
+            # print(action,reward,done,obs_.shape)
+            # act_=F.one_hot(idx_, env.action_size).float()
+            D.append(observation_, action, reward, done)
+            if done_cnt==3:
+                break
 
 # Initialise model parameters randomly
 transition_model = TransitionModel(

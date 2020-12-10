@@ -151,7 +151,12 @@ class Args(object):
             print("DrQ is used in this training")
 
 args=Args()
-# setup_my_seed(args)
+def setup_my_seed (args):
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available() and not args.disable_cuda:
+        torch.cuda.manual_seed(args.seed)
+setup_my_seed(args)
 # device = get_my_device(args)
 # Initialise training environment and experience replay memory
 env = Env(args.env, args.seed, args.max_episode_length, args.action_repeat,
@@ -180,7 +185,9 @@ elif not args.test:
     mapping={ord("a"):4,ord("d"):3,ord("s"):5,ord("q"):2,ord("e"):1,32:0,ord("l"):0}
     for s in range(1, args.seed_episodes + 1):
         observation, done, t = env.reset(), False, 0
+        step=0
         while not done:
+            print(observation.shape)
             x=postprocess_observation(observation.numpy(),args.bit_depth)
             cv2.imshow("Tetris",cv2.resize(x[0].transpose(1,2,0),(512,512)))
             key=cv2.waitKey()
@@ -189,10 +196,14 @@ elif not args.test:
             idx=mapping[key]
             action=np.zeros((6,))
             action[idx]=1
+            step+=1
             # action = env.sample_random_action()
             next_observation, reward, done = env.step(action)
+            if t>2000:
+                done=True
             D.append((x, action, reward, done))
             observation = next_observation
             t += 1
+                
         print(len(D))
     torch.save(D, os.path.join(".", 'experience.pth'))  # Warning: will fail with MemoryError with large memory sizes

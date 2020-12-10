@@ -135,6 +135,10 @@ class NesEnv():
         self.add_reward = args.add_reward
         self.typeb = "1" in env
         self.acc = 0.03 if self.typeb else 3
+        if args.experience_list:
+            self.one_skip=True
+        else:
+            self.one_skip=False
         if not args.add_reward:
             self.acc=0
 
@@ -168,6 +172,11 @@ class NesEnv():
             o,r,d,info=self._env.step(0)
             reward+=r
             done=d or done
+        if flag and self.one_skip:
+            o,r,d,info=self._env.step(0)
+            reward+=r
+            done=d or done
+            state=o
         if flag:
             reward+=self.acc
         if info['board_height']>10:
