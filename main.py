@@ -14,7 +14,7 @@ from models import bottle, Encoder, ObservationModel, RewardModel, PcontModel, T
 from planner import MPCPlanner
 from utils import *
 from torch.utils.tensorboard import SummaryWriter
-
+from env_utils import make_envs
 # Setup
 args = Args()
 setup_my_seed(args)
@@ -31,6 +31,10 @@ metrics = {
 # Initialise training environment and experience replay memory
 env = Env(args.env, args.seed, args.max_episode_length, args.action_repeat,
           args.bit_depth)
+test_envs = EnvBatcher(Env, (args.env, args.seed, args.max_episode_length,
+                                args.action_repeat, args.bit_depth), {},
+                               args.test_episodes)
+# test_envs2 = make_envs()
 if args.experience_replay != '' and os.path.exists(args.experience_replay):
     D = torch.load(args.experience_replay)
     metrics['steps'], metrics['episodes'] = [D.steps] * D.episodes, list(
@@ -412,10 +416,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1),
         if args.pcont:
             pcont_model.eval()
         # Initialise parallelised test environments
-        test_envs = EnvBatcher(Env,
-                               (args.env, args.seed, args.max_episode_length,
-                                args.action_repeat, args.bit_depth), {},
-                               args.test_episodes)
 
         with torch.no_grad():
             observation, total_rewards, video_frames = test_envs.reset(
@@ -475,7 +475,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1),
         if args.pcont:
             pcont_model.train()
         # Close test environments
-        test_envs.close()
+        # test_envs.close()
 
     writer.add_scalar("train_reward", metrics['train_rewards'][-1],
                       metrics['steps'][-1])
@@ -518,3 +518,4 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1),
 
 # Close training environment
 env.close()
+test_envs.close()

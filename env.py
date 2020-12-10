@@ -123,11 +123,11 @@ class NesEnv():
                  bit_depth):
         from nes_py.wrappers import JoypadSpace
         import gym_tetris
-        from gym_tetris.actions import MOVEMENT
+        from gym_tetris.actions import SIMPLE_MOVEMENT
 
         self._env = gym_tetris.make(env)
         self._env.seed(seed)
-        self._env = JoypadSpace(self._env, MOVEMENT)
+        self._env = JoypadSpace(self._env, SIMPLE_MOVEMENT)
         self.max_episode_length = max_episode_length
         self.action_repeat = action_repeat
         self.bit_depth = bit_depth
@@ -135,6 +135,11 @@ class NesEnv():
     def reset(self):
         self.t = 0  # Reset internal timer
         state = self._env.reset()
+        # hack the memory of the nes env, setting level to 29
+        self._env.ram[0x0064]=29
+        # skip some frames
+        for i in range(85):
+            state,r,d,i=self._env.step(0)
         observation = _images_to_observation(state, self.bit_depth,
                                              self.observation_size)  # NxCxHxW
         return observation
@@ -256,7 +261,7 @@ class EnvBatcher():
         )[:,
           0]  # Done mask to blank out observations and zero rewards for previously terminated environments
         observations, rewards, dones = zip(
-            *[env.step(action) for env, action in zip(self.envs, actions)])
+            *[env.step(action) if not d else (torch.zeros(1,3,128,128), 0,True) for env, action, d in zip(self.envs, actions, self.dones)])
         dones = [d or prev_d for d, prev_d in zip(dones, self.dones)
                  ]  # Env should remain terminated if previously terminated
         self.dones = dones
