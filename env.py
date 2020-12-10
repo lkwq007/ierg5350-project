@@ -49,7 +49,7 @@ def postprocess_observation(observation, bit_depth):
 
 def _images_to_observation(images, bit_depth, img_size=(3, 128, 128)):
     images = torch.FloatTensor(
-        cv2.resize(images, (img_size[2], img_size[1]),
+        cv2.resize(images[46:-30,92:-12,:], (img_size[2], img_size[1]),
                    interpolation=cv2.INTER_LINEAR).transpose(
                        2, 0, 1))  # Resize and put channel first
     preprocess_observation_(
@@ -125,7 +125,7 @@ class NesEnv():
         import gym_tetris
         from gym_tetris.actions import SIMPLE_MOVEMENT
 
-        self._env = gym_tetris.make(env)
+        self._env = gym_tetris.make(env,skip_level=True)
         self._env.seed(seed)
         self._env = JoypadSpace(self._env, SIMPLE_MOVEMENT)
         self.max_episode_length = max_episode_length
@@ -148,13 +148,18 @@ class NesEnv():
         action = action.argmax().item()  # convert onehot action to int
         reward = 0
         state, done = None, None
-        for k in range(self.action_repeat):
-            state, reward_k, done, _ = self._env.step(action)
+        for k in range(3):
+            state, reward_k, done, _ = self._env.step(action if k==0 else 0)
             reward += reward_k
             self.t += 1  # Increment internal timer
             done = done or self.t == self.max_episode_length
             if done:
                 break
+        while self._env.ram[0x0065]>0 and self._env.ram[0x0068]>=2 and not done:
+            flag=True
+            o,r,d,info=self._env.step(0)
+            reward+=r
+            done=d or done
         observation = _images_to_observation(state, self.bit_depth,
                                              self.observation_size)
         return observation, reward, done
