@@ -56,6 +56,14 @@ def _images_to_observation(images, bit_depth, img_size=(3, 128, 128)):
         images, bit_depth)  # Quantise, centre and dequantise inplace
     return images.unsqueeze(dim=0)  # Add batch dimension
 
+def _images_to_observation_binary(images, bit_depth, img_size=(3, 128, 128)):
+    gray=cv2.cvtColor(images,cv2.COLOR_RGB2GRAY)
+    im_bw = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)[1]
+    images = torch.FloatTensor(cv2.resize(im_bw[46:-30,92:-12], (img_size[2], img_size[1]), interpolation=cv2.INTER_LINEAR))  # Resize and put channel first
+    preprocess_observation_(images, bit_depth)  # Quantise, centre and dequantise inplace
+    return images.unsqueeze(dim=0).unsqueeze(dim=0)  # Add batch dimension
+
+
 
 class ControlSuiteEnv():
     def __init__(self, env, seed, max_episode_length, action_repeat,
@@ -118,6 +126,7 @@ class ControlSuiteEnv():
             np.random.uniform(spec.minimum, spec.maximum, spec.shape))
 
 
+
 class NesEnv():
     def __init__(self, env, seed, max_episode_length, action_repeat,
                  bit_depth, args):
@@ -135,12 +144,16 @@ class NesEnv():
         self.add_reward = args.add_reward
         self.typeb = "1" in env
         self.acc = 0.03 if self.typeb else 3
-        if args.experience_list:
-            self.one_skip=True
+        self.living = 0.003 if self.typeb else 0.3
+        self.dim=1 if args.binary_image else 3
+        if args.binary_image:
+            self._precess_obs=_images_to_observation_binary
         else:
-            self.one_skip=False
+            self._process_obs=_images_to_observation
+        self.one_skip=False
         if not args.add_reward:
             self.acc=0
+            self.living=0
 
     def reset(self):
         self.t = 0  # Reset internal timer
@@ -150,7 +163,8 @@ class NesEnv():
         # skip some frames
         for i in range(85):
             state,r,d,i=self._env.step(0)
-        observation = _images_to_observation(state, self.bit_depth,
+        # print(self.observation_size)
+        observation = self._precess_obs(state, self.bit_depth,
                                              self.observation_size)  # NxCxHxW
         return observation
 
@@ -159,7 +173,8 @@ class NesEnv():
         reward = 0
         state, done = None, None
         total=3 if self._env.ram[0x0068]<2 else 1
-        for k in range(3):
+        for k in range(2):
+            print(f"Timer: {self._env.ram[0x0065]},State {self._env.ram[0x0068]}")
             state, reward_k, done, info = self._env.step(action if k==0 else 0)
             reward += reward_k
             self.t += 1  # Increment internal timer
@@ -179,9 +194,10 @@ class NesEnv():
             state=o
         if flag:
             reward+=self.acc
-        if info['board_height']>10:
-            reward-=self.acc
-        observation = _images_to_observation(state, self.bit_depth,
+            if info['board_height']>10:
+                reward-=self.acc
+        reward+=self.living
+        observation = self._precess_obs(state, self.bit_depth,
                                              self.observation_size)
         return observation, reward, done
 
@@ -194,7 +210,7 @@ class NesEnv():
     @property
     def observation_size(self):
         # self._env.observation_space.shape: H x W x C (240x256x3)
-        return (3, 96, 96) if self.small_image else (3, 128, 128)  # C x H x W
+        return (self.dim, 96, 96) if self.small_image else (self.dim, 128, 128)  # C x H x W
         # return (3, 120, 128) # C x H x W # TODO: Lixin
 
     @property
@@ -272,7 +288,8 @@ class EnvBatcher():
         self.envs = [env_class(*env_args, **env_kwargs) for _ in range(n)]
         self.dones = [True] * n
         self.small_image=env_args[-1].small_image
-        self.shp=(1,3,96,96) if self.small_image else (1,3,128,128)
+        dim=1 if env_args[-1].binary_image else 3
+        self.shp=(1,dim,96,96) if self.small_image else (1,dim,128,128)
 
     # Resets every environment and returns observation
     def reset(self):

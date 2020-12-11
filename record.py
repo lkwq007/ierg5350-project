@@ -130,8 +130,9 @@ parser.add_argument('--pcont_scale', type=float, default=10.0, help='enable pcon
 parser.add_argument('--kl_scale', type=float, default=0.1, help='enable pcont')
 
 parser.add_argument('--small_image', type=str2bool, default=True, help='using 96x96 image')
-parser.add_argument('--add_reward', type=str2bool, default=False, help='additional reward')
+parser.add_argument('--add_reward', type=str2bool, default=True, help='additional reward')
 parser.add_argument('--experience_list', type=str, default='', metavar='ELL', help='Load experience replay')
+parser.add_argument('--binary_image', type=str2bool, default=True, help='using binary image')
 
 class Args(object):
     def __init__(self, _parser=parser) -> None:
@@ -199,6 +200,7 @@ elif not args.test:
             step+=1
             # action = env.sample_random_action()
             next_observation, reward, done = env.step(action)
+            print(reward,done)
             if t>2000:
                 done=True
             D.append((x, action, reward, done))

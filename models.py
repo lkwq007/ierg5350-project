@@ -147,7 +147,7 @@ class VisualObservationModel(nn.Module):
                  state_size,
                  embedding_size,
                  activation_function='relu',
-                 small_image=False):
+                 small_image=False,binary=False):
         super().__init__()
         self.act_fn = getattr(F, activation_function)
         self.embedding_size = embedding_size
@@ -157,13 +157,13 @@ class VisualObservationModel(nn.Module):
             self.conv1 = nn.ConvTranspose2d(embedding_size, 128, 5, stride=2)
             self.conv2 = nn.ConvTranspose2d(128, 64, 5, stride=2)
             self.conv3 = nn.ConvTranspose2d(64, 32, 7, stride=2)
-            self.conv4 = nn.ConvTranspose2d(32, 3, 6, stride=3)
+            self.conv4 = nn.ConvTranspose2d(32, 1 if binary else 3, 6, stride=3)
         else:
             self.conv1 = nn.ConvTranspose2d(embedding_size, 256, 5, stride=2)
             self.conv2 = nn.ConvTranspose2d(256, 128, 5, stride=2)
             self.conv3 = nn.ConvTranspose2d(128, 64, 5, stride=2)
             self.conv4 = nn.ConvTranspose2d(64, 32, 6, stride=2)
-            self.conv5 = nn.ConvTranspose2d(32, 3, 6, stride=2)
+            self.conv5 = nn.ConvTranspose2d(32, 1 if binary else 3, 6, stride=2)
         self.modules = [
             self.fc1, self.conv1, self.conv2, self.conv3, self.conv4
         ]
@@ -188,9 +188,9 @@ def ObservationModel(observation_size,
                      belief_size,
                      state_size,
                      embedding_size,
-                     activation_function='relu', small_image=False):
+                     activation_function='relu', small_image=False, binary=False):
     return VisualObservationModel(belief_size, state_size, embedding_size,
-                                  activation_function, small_image)
+                                  activation_function, small_image, binary)
 
 
 class RewardModel(nn.Module):
@@ -351,6 +351,8 @@ class ActorModel(nn.Module):
             dist = SampleDist(dist)
         elif self._dist == 'onehot':
             # actor_out.size() == (N x action_size)
+            # fix for RuntimeError: CUDA error: device-side assert triggered
+            actor_out=(torch.tanh(actor_out)+1.0) * 0.5
             dist = Categorical(logits=actor_out)
             dist = OneHotDist(dist)
         else:
@@ -364,7 +366,7 @@ class ActorModel(nn.Module):
 class VisualEncoder(nn.Module):
     __constants__ = ['embedding_size']
 
-    def __init__(self, embedding_size, activation_function='relu',small_image=False):
+    def __init__(self, embedding_size, activation_function='relu',small_image=False, binary=False):
         super().__init__()
         self.act_fn = getattr(F, activation_function)
         # perhaps we need larger embedding_size
@@ -372,12 +374,12 @@ class VisualEncoder(nn.Module):
         # kernel 4 seems strange
         if small_image:
             # 96x96
-            self.conv1 = nn.Conv2d(3, 32, 4, stride=3)
+            self.conv1 = nn.Conv2d(1 if binary else 3, 32, 4, stride=3)
             self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
             self.conv3 = nn.Conv2d(64, 128, 4, stride=2)
             self.conv4 = nn.Conv2d(128, 256, 4, stride=2)
         else:
-            self.conv1 = nn.Conv2d(3, 32, 5, stride=2)
+            self.conv1 = nn.Conv2d(1 if binary else 3, 32, 5, stride=2)
             self.conv2 = nn.Conv2d(32, 64, 5, stride=3)
             self.conv3 = nn.Conv2d(64, 128, 5, stride=2)
             self.conv4 = nn.Conv2d(128, 256, 5, stride=2)
@@ -398,8 +400,8 @@ class VisualEncoder(nn.Module):
         return hidden
 
 
-def Encoder(observation_size, embedding_size, activation_function='relu', small_image=False):
-    return VisualEncoder(embedding_size, activation_function, small_image)
+def Encoder(observation_size, embedding_size, activation_function='relu', small_image=False, binary=False):
+    return VisualEncoder(embedding_size, activation_function, small_image, binary)
 
 
 # "atanh", "TanhBijector" and "SampleDist" are from the following repo

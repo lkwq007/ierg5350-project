@@ -111,6 +111,7 @@ parser.add_argument('--small_image', type=str2bool, default=False, help='using 9
 parser.add_argument('--add_reward', type=str2bool, default=False, help='additional reward')
 parser.add_argument('--experience_list', type=str, default='', metavar='ELL', help='Load experience replay')
 parser.add_argument('--env_one_skip', type=str2bool, default=False, help='Load experience replay')
+parser.add_argument('--binary_image', type=str2bool, default=False, help='using binary image')
 
 class Args(object):
     def __init__(self, _parser=parser) -> None:

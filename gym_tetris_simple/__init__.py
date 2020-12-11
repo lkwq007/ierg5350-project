@@ -6,7 +6,7 @@ for game in ['Tetris']:
     nondeterministic = False
     register(
         id='{}-v0'.format(game),
-        entry_point='gym_tetris:TetrisEnv',
+        entry_point='gym_tetris_simple:TetrisEnv',
         kwargs={},
         nondeterministic=nondeterministic,
     )

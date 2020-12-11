@@ -17,13 +17,15 @@ class TetrisEnv(gym.Env):
         self.action_space = spaces.Discrete(len(self._action_set))
         self.observation_space = spaces.Box(low=0, high=255, shape=(SCREEN_HEIGHT, SCREEN_WIDTH, 3))
         self.viewer = None
+        self._seed_r=0
       
-    def seed(self,seed):
+    def _seed(self,seed):
       random.seed(seed)
+      self._seed_r=seed
       return [seed]
 
 
-    def step(self, a):
+    def _step(self, a):
         self._action_set = np.zeros([len(self._action_set)])
         self._action_set[a] = 1
         reward = 0.0
@@ -38,15 +40,16 @@ class TetrisEnv(gym.Env):
         return len(self._action_set)
 
     # return: (states, observations)
-    def reset(self):
-        # random.seed(self._seed)
+    def _reset(self):
+#         random.seed(self._seed_r)
         do_nothing = np.zeros(len(self._action_set))
         do_nothing[0] = 1
         self.observation_space = spaces.Box(low=0, high=255, shape=(SCREEN_HEIGHT, SCREEN_WIDTH, 3))
+        self.game_state.reinit()
         state, _, _= self.game_state.frame_step(do_nothing)
         return state.transpose(1,0,2)
 
-    def render(self, mode='human', close=False):
+    def _render(self, mode='human', close=False):
         if close:
             if self.viewer is not None:
                 self.viewer.close()
