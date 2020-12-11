@@ -149,7 +149,7 @@ class NesEnv():
         if args.binary_image:
             self._precess_obs=_images_to_observation_binary
         else:
-            self._process_obs=_images_to_observation
+            self._precess_obs=_images_to_observation
         self.one_skip=False
         if not args.add_reward:
             self.acc=0
