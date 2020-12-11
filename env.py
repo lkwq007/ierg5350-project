@@ -147,9 +147,9 @@ class NesEnv():
         self.living = 0.003 if self.typeb else 0.3
         self.dim=1 if args.binary_image else 3
         if args.binary_image:
-            self._precess_obs=_images_to_observation_binary
+            self._process_obs=_images_to_observation_binary
         else:
-            self._precess_obs=_images_to_observation
+            self._process_obs=_images_to_observation
         self.one_skip=False
         if not args.add_reward:
             self.acc=0
@@ -164,7 +164,7 @@ class NesEnv():
         for i in range(85):
             state,r,d,i=self._env.step(0)
         # print(self.observation_size)
-        observation = self._precess_obs(state, self.bit_depth,
+        observation = self._process_obs(state, self.bit_depth,
                                              self.observation_size)  # NxCxHxW
         return observation
 
@@ -197,7 +197,7 @@ class NesEnv():
             if info['board_height']>10:
                 reward-=self.acc
         reward+=self.living
-        observation = self._precess_obs(state, self.bit_depth,
+        observation = self._process_obs(state, self.bit_depth,
                                              self.observation_size)
         return observation, reward, done
 
