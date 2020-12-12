@@ -98,17 +98,17 @@ class SymbolTetrisSimple(gym.Wrapper):
 
     def step(self, action):            
         obs, reward, done, info = self.env.step(action)
+        cleared = reward / 100
 
         # reward shaping
-        if reward > 0 and self.add_reward:
+        if self.add_reward:
             board=self._get_board_ram()
             bumpiness, heights, holes, max_heights = get_bumpiness_height_hole(board)
-            score = 6.76*reward - 0.51*heights - 0.36*holes - 0.28*bumpiness - 0.5*max_heights
+            score = 0.76*cleared - 0.51*heights - 0.36*holes - 0.18*bumpiness
             reward = score - self.score
-        if done:
-            reward += self.die
+            self.score = score
         
-        return self._get_board(obs), reward, done, info
+        return self._get_board(obs), reward, done, info, cleared
     
     @property
     def observation_size(self):

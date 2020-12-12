@@ -6,7 +6,6 @@ from gym_tetris_simple.tetris_engine import PIECES, TEMPLATEWIDTH, TEMPLATEHEIGH
 from utils import str2bool
 import gym
 import numpy as np
-from memory import ExperienceReplay
 import os
 import gzip
 
@@ -19,7 +18,7 @@ parser.add_argument("--experience_size", type=int, default=1000000, help="Size o
 parser.add_argument("--fps", type=int, default=1, help="frames per second")
 parser.add_argument("--saved_path", type=str, default="output")
 parser.add_argument("--output", type=str, default="video.avi")
-parser.add_argument("--gpu", type=int, default=1)
+parser.add_argument("--gpu", type=int, default=0)
 parser.add_argument("--gui_render", type=str2bool, default=False)
 args = parser.parse_args()
 
@@ -28,6 +27,7 @@ step_idx = 0
 finish_saving = False
 all_reward = np.empty((args.experience_size, ), dtype=np.float32) 
 all_action = np.empty((args.experience_size, ), dtype=np.int8) 
+all_line = np.empty((args.experience_size, ), dtype=np.int8) 
 all_done = np.empty((args.experience_size, ), dtype=np.bool) 
 all_obs = np.empty((args.experience_size, 200), dtype=np.bool)
 
@@ -36,10 +36,11 @@ def get_onehot(act, action_space_size=6):
     one_hot_act[act] = 1
     return one_hot_act
 
-def save_step(args, obs: np.ndarray, action: int, reward: float, done: bool):
-    global step_idx, finish_saving, all_reward, all_action, all_done, all_obs
+def save_step(args, obs: np.ndarray, action: int, reward: float, done: bool, line: int):
+    global step_idx, finish_saving, all_reward, all_action, all_done, all_obs, all_line
     all_obs[step_idx] = obs.astype(np.bool)
     all_action[step_idx] = action
+    all_line[step_idx] = line
     all_reward[step_idx] = reward
     all_done[step_idx] = done
     if step_idx == args.experience_size - 1:
@@ -48,7 +49,7 @@ def save_step(args, obs: np.ndarray, action: int, reward: float, done: bool):
     step_idx = step_idx % args.experience_size
 
 
-# def save_step(args, obs, action, reward, done):
+# def wrapper(args, obs, action, reward, done):
 #     obs = torch.FloatTensor(obs).unsqueeze(dim=0)
 #     action = torch.from_numpy(get_onehot(action))
 #     return obs, action, reward, done
@@ -66,8 +67,8 @@ def apply_sim_to_rom(
     if rom_env.game_state.fallingPiece is not None and not done:
         act = 2
         for _ in range(num_rotations):
-            next_obs, reward, done, _ = rom_env.step(act) # up (rotate)
-            save_step(args, obs, act, reward, done)
+            next_obs, reward, done, _, line = rom_env.step(act) # up (rotate)
+            save_step(args, obs, act, reward, done, line)
             obs = next_obs
             if rom_env.game_state.fallingPiece is None:
                 break
@@ -88,8 +89,8 @@ def apply_sim_to_rom(
         if offset != 0:
             act = 1 if offset < 0 else 3 # 1: left, 3: right
             for i in range(abs(offset)):
-                next_obs, reward, done, _ = rom_env.step(act) # move left or right
-                save_step(args, obs, act, reward, done)
+                next_obs, reward, done, _, line = rom_env.step(act) # move left or right
+                save_step(args, obs, act, reward, done, line)
                 obs = next_obs
                 if rom_env.game_state.fallingPiece is None:
                     break
@@ -98,15 +99,15 @@ def apply_sim_to_rom(
     # down
     while rom_env.game_state.fallingPiece is not None and not done:
         act = 4
-        next_obs, reward, done, _ = rom_env.step(act) # down
-        save_step(args, obs, act, reward, done)
+        next_obs, reward, done, _, line = rom_env.step(act) # down
+        save_step(args, obs, act, reward, done, line)
         obs = next_obs
         if done:
             break
     return obs, done
 
 def test(args):
-    global step_idx, finish_saving, all_reward, all_action, all_done, all_obs
+    global step_idx, finish_saving, all_reward, all_action, all_done, all_obs, all_line
     if torch.cuda.is_available():
         torch.cuda.manual_seed(0)
     else:
@@ -125,6 +126,7 @@ def test(args):
     
     while not finish_saving:
         rom_obs = rom_env.reset()
+        save_step(args, rom_obs, 0, 0.0, False, 0)
         env.reset()
         env.set_new_piece(rom2sim_id(rom_env.game_state.fallingPiece))
         counter = 0
@@ -148,8 +150,8 @@ def test(args):
                 env.set_new_piece(rom2sim_id(rom_env.game_state.nextPiece))
 
             # skip fallingPiece is None (next obs: new piece will appear)
-            next_rom_obs, reward, rom_done, _ = rom_env.step(0) 
-            save_step(args, rom_obs, 0, reward, rom_done)
+            next_rom_obs, reward, rom_done, _, line = rom_env.step(0) 
+            save_step(args, rom_obs, 0, reward, rom_done, line)
             rom_obs = next_rom_obs
             done = rom_done or done
             
@@ -172,6 +174,7 @@ def test(args):
     np.savez(os.path.join("output", "buffer.npz"), 
         all_reward=all_reward, 
         all_action=all_action, 
+        all_line=all_line, 
         all_done=all_done, 
         all_obs=all_obs
     )
