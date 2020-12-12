@@ -88,8 +88,8 @@ parser.add_argument('--expl_decay', type=float, default=100000.0,
 parser.add_argument('--expl_min', type=float, default=0.1,
                                         help='Minimum Exploration Decay Value')
 parser.add_argument('--experience-buffer', type=str, default='', metavar='EB', help='Load experience replay')
-parser.add_argument('--use-reward', type=str, default='', metavar='EB', help='Load experience replay')
-
+parser.add_argument('--use-reward', action='store_true', help='Load experience replay')
+parser.add_argument('--clone',action='store_true', help='Load experience replay')
 args = parser.parse_args()
 args.symbolic_env=True
 args.overshooting_distance = min(args.chunk_size, args.overshooting_distance)  # Overshooting distance cannot be greater than chunk size
@@ -145,8 +145,8 @@ elif not args.test:
             import numpy as np
             from torch.nn import functional as F
             def get_action(idx):
-                indices = torch.tensor(idx)
-		        return F.one_hot(indices, env.action_size).float()
+                indices = torch.tensor(idx).long()
+                return F.one_hot(indices, env.action_size).float()
             buffer=np.load(args.experience_buffer)
             total=buffer["all_reward"].shape[0]
             for i in range(total):
