@@ -124,16 +124,39 @@ if args.experience_replay is not '' and os.path.exists(args.experience_replay):
 elif not args.test:
   D = ExperienceReplay(args.experience_size, args.symbolic_env, env.observation_size, env.action_size, args.bit_depth, args.device)
   # Initialise dataset D with S random seed episodes
-  for s in range(1, args.seed_episodes + 1):
-    observation, done, t = env.reset(), False, 0
-    while not done:
-      action = env.sample_random_action()
-      next_observation, reward, done = env.step(action)
-      D.append(observation, action, reward, done)
-      observation = next_observation
-      t += 1
-    metrics['steps'].append(t * args.action_repeat + (0 if len(metrics['steps']) == 0 else metrics['steps'][-1]))
-    metrics['episodes'].append(s)
+  _num_step=0
+  if args.env=="Tetris-v0":
+    for s in range(1, args.seed_episodes + 1):
+      observation, done, t = env.reset(), False, 0
+      while not done:
+        action = env.sample_random_action()
+        next_observation, reward, done = env.step(action)
+        D.append(observation, action, reward, done)
+        observation = next_observation
+        t += 1
+        _num_step+=1
+      metrics['steps'].append(t * args.action_repeat + (0 if len(metrics['steps']) == 0 else metrics['steps'][-1]))
+      metrics['episodes'].append(s)
+    while _num_step<5000:
+      observation, done, t = env.reset(), False, 0
+      while not done:
+        action = env.sample_random_action()
+        next_observation, reward, done = env.step(action)
+        D.append(observation, action, reward, done)
+        observation = next_observation
+        t += 1
+        _num_step+=1
+  else:
+    for s in range(1, args.seed_episodes + 1):
+      observation, done, t = env.reset(), False, 0
+      while not done:
+        action = env.sample_random_action()
+        next_observation, reward, done = env.step(action)
+        D.append(observation, action, reward, done)
+        observation = next_observation
+        t += 1
+      metrics['steps'].append(t * args.action_repeat + (0 if len(metrics['steps']) == 0 else metrics['steps'][-1]))
+      metrics['episodes'].append(s)
 
 
 # Initialise model parameters randomly
@@ -206,23 +229,23 @@ def update_belief_and_act(args, env, planner, transition_model, encoder, belief,
 from torch.distributions import Normal, Categorical, Bernoulli
 
 def exploration(args, action, step=0):
-    amount = args.expl_amount
-    if args.expl_decay:
-        amount *= 0.5**(float(step) / args.expl_decay)
-    if args.expl_min:
-        amount = max(args.expl_min, amount)
-    if args.expl_type == 'additive_gaussian':
-        action = torch.clamp(Normal(action, amount).rsample(), -1, 1)
-    elif args.expl_type == 'epsilon_greedy':
-        prob = torch.ones_like(action)
-        prob = prob / torch.sum(prob)
-        indices = Categorical(prob).sample()
-        action = torch.where(
-            torch.rand(action.shape[:1], device=action.get_device()) < amount,
-            F.one_hot(indices, action.shape[-1]).float(), action)
-    else:
-        raise NotImplementedError(args.expl_type)
-    return action
+  amount = args.expl_amount
+  if args.expl_decay:
+    amount *= 0.5**(float(step) / args.expl_decay)
+  if args.expl_min:
+    amount = max(args.expl_min, amount)
+  if args.expl_type == 'additive_gaussian':
+    action = torch.clamp(Normal(action, amount).rsample(), -1, 1)
+  elif args.expl_type == 'epsilon_greedy':
+    prob = torch.ones_like(action)
+    prob = prob / torch.sum(prob)
+    indices = Categorical(prob).sample()
+    action = torch.where(
+      torch.rand(action.shape[:1], device=action.device) < amount,
+      F.one_hot(indices, action.shape[-1]).float(), action)
+  else:
+    raise NotImplementedError(args.expl_type)
+  return action
 
 # Testing only
 if args.test:
@@ -248,7 +271,7 @@ if args.test:
   print('Average Reward:', total_reward / args.test_episodes)
   env.close()
   quit()
-torch.autograd.set_detect_anomaly = True
+# torch.autograd.set_detect_anomaly = True
 def to_image(obs):
   return torch.nn.functional.interpolate(obs.view(args.test_episodes,1,20,10),scale_factor=5)
 # Training (and testing)
@@ -323,9 +346,10 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     if args.algo=="p2e":
       #Plan2explore implementation: onestep model loss calculation and optimization
       with torch.no_grad():
-        onestep_actions = actions.detach()
-        onestep_obs = observations.detach()
+        onestep_actions = actions[:-1].detach()
+        onestep_obs = observations[1:].detach()
         onestep_beliefs = beliefs.detach()
+        # a0 + obs0, belief0
       onestep_batch_size = onestep_actions.size(1)
       action_feature_size = onestep_actions.size(2)
       # print(onestep_actions.shape)
@@ -334,7 +358,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
       with FreezeParameters(model_modules):
         onestep_embed = bottle(encoder, (onestep_obs, ))
       bagging_size = args.batch_size
-      sample_with_replacement = torch.Tensor(args.onestep_num, bagging_size).uniform_(0,args.batch_size).type(torch.int64).to(device=args.device)
+      sample_with_replacement = torch.Tensor(args.onestep_num, bagging_size).uniform_(0,args.batch_size-1).type(torch.int64).to(device=args.device)
       for mdl in range(len(onestep_models)):
         action_indices = sample_with_replacement[mdl,:].reshape(onestep_batch_size, 1, 1).expand(onestep_batch_size, onestep_batch_size, action_feature_size)
         pred_indices = sample_with_replacement[mdl,:].reshape(onestep_batch_size, 1, 1).expand(onestep_batch_size, onestep_batch_size, obs_feature_size)
@@ -469,20 +493,21 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
       policy = planner
 
   with torch.no_grad():
-    observation, total_reward = env.reset(), 0
-    belief, posterior_state, action = torch.zeros(1, args.belief_size, device=args.device), torch.zeros(1, args.state_size, device=args.device), torch.zeros(1, env.action_size, device=args.device)
-    pbar = tqdm(range(args.max_episode_length // args.action_repeat))
-    for t in pbar:
-      # print("step",t)
-      belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(args, env, policy, transition_model, encoder, belief, posterior_state, action, observation.to(device=args.device), explore=True)
-      D.append(observation, action.cpu(), reward, done)
-      total_reward += reward
-      observation = next_observation
-      if args.render:
-        env.render()
-      if done:
-        pbar.close()
-        break
+    for i in range(10):
+      observation, total_reward = env.reset(), 0
+      belief, posterior_state, action = torch.zeros(1, args.belief_size, device=args.device), torch.zeros(1, args.state_size, device=args.device), torch.zeros(1, env.action_size, device=args.device)
+      pbar = tqdm(range(args.max_episode_length // args.action_repeat))
+      for t in pbar:
+        # print("step",t)
+        belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(args, env, policy, transition_model, encoder, belief, posterior_state, action, observation.to(device=args.device), explore=True)
+        D.append(observation, action.cpu(), reward, done)
+        total_reward += reward
+        observation = next_observation
+        if args.render:
+          env.render()
+        if done:
+          pbar.close()
+          break
     
     # Update and plot train reward metrics
     metrics['steps'].append(t + metrics['steps'][-1])
