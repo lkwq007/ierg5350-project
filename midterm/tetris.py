@@ -10,9 +10,113 @@ import cv2
 from matplotlib import style
 import torch
 import random
+import gym_tetris_simple
+import gym
+from gym import spaces
 
 style.use("ggplot")
 
+SIMPLE_MOVEMENT = [
+    ['NOOP'],
+    ['A'],
+    ['B'],
+    ['right'],
+    ['left'],
+    ['down'],
+]
+
+LUT_FOR_ROM_PIECE_2SIM_PIECE_ID = {
+    'S': {0:3, 1:11},
+    'Z': {0:4, 1:12},
+    'I': {0:13, 1:5},
+    'O': {0:1},
+    'J': {0:7, 1:18, 2:17, 3:19},
+    'L': {0:6, 1:15, 2:14, 3:16},
+    'T': {0:2, 1:10, 2:8, 3:9},
+}
+
+def rom2sim_id(rom_piece):
+    shape = rom_piece['shape']
+    rotation = rom_piece['rotation']
+    # Note: SIM_PIECE_ID start from 1 in the Look up table
+    # However, Tetris.pieces[0] == [[1, 1],[1, 1]]
+    # We need to minus the offset 1 between the list and the Look up table
+    ind = LUT_FOR_ROM_PIECE_2SIM_PIECE_ID[shape][rotation] - 1
+    return  ind
+
+def crop_image_simple(image):
+    '''
+    Args: image as an numpy array
+    returns: a crop image as a standardised numpy array
+    '''
+    image = np.mean(image, axis=2)
+    image[image > 0] = 1
+    image = cv2.resize(image, (10,20))
+    image = image.astype(np.float32)
+    return image
+
+def get_bumpiness_height_hole(board):
+    board = np.array(board)
+    mask = board > 0
+    invert_heights = np.where(mask.any(axis=0), np.argmax(mask, axis=0), 20)
+    heights = 20 - invert_heights
+    total_height = np.sum(heights)
+    max_height = heights.max()
+    currs = heights[:-1]
+    nexts = heights[1:]
+    diffs = np.abs(currs - nexts)
+    total_bumpiness = np.sum(diffs)
+    total_cell=np.sum(board)
+    return total_bumpiness, total_height, total_height-total_cell, max_height
+
+class SymbolTetrisSimple(gym.Wrapper):
+    def __init__(self, env, add_reward=True):
+        gym.Wrapper.__init__(self, env)
+        shp = env.observation_space.shape
+        # set 
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(200,), dtype=np.float32)
+        self.die = -50
+        self.score = 0.0
+        self.add_reward = add_reward
+        if not self.add_reward:
+            self.die = 0
+
+    def reset(self):
+        obs = self.env.reset()
+        self.score = 0.0
+        return self._get_board(obs)
+    
+    def _get_board(self,obs):
+        return crop_image_simple(obs).reshape(-1)
+    
+    def _get_board_ram(self):
+        board=np.array(self.env.game_state.board)
+        board[board!="."]=1
+        board[board=="."]=0
+        board=board.astype(np.float32).transpose(1,0)
+        return board
+
+    def step(self, action):            
+        obs, reward, done, info = self.env.step(action)
+
+        # reward shaping
+        if reward > 0 and self.add_reward:
+            board=self._get_board_ram()
+            bumpiness, heights, holes, max_heights = get_bumpiness_height_hole(board)
+            score = 6.76*reward - 0.51*heights - 0.36*holes - 0.28*bumpiness - 0.5*max_heights
+            reward = score - self.score
+        if done:
+            reward += self.die
+        
+        return self._get_board(obs), reward, done, info
+    
+    @property
+    def observation_size(self):
+        return self.observation_space.shape[0]
+
+    @property
+    def action_size(self):
+        return self.action_space.n
 
 class Tetris:
     piece_colors = [
@@ -23,7 +127,19 @@ class Tetris:
         (255, 0, 0),
         (102, 217, 238),
         (254, 151, 32),
-        (0, 0, 255)
+        (0, 0, 255),
+        (255, 255, 0),
+        (255, 255, 0),
+        (255, 255, 0),
+        (147, 88, 254),
+        (54, 175, 144),
+        (255, 0, 0),
+        (102, 217, 238),
+        (102, 217, 238),
+        (102, 217, 238),
+        (254, 151, 32),
+        (254, 151, 32),
+        (254, 151, 32),
     ]
 
     pieces = [
@@ -45,7 +161,54 @@ class Tetris:
          [6, 6, 6]],
 
         [[7, 0, 0],
-         [7, 7, 7]]
+         [7, 7, 7]],
+
+        [[8, 8, 8],
+         [0, 8, 0]],
+
+        [[0, 9],
+         [9, 9],
+         [0, 9]],
+
+        [[10, 0],
+         [10, 10],
+         [10, 0]],
+
+        [[11, 0 ],
+         [11, 11],
+         [0 , 11]],
+
+        [[0 , 12],
+         [12, 12],
+         [12, 0 ]],
+        
+        [[13],
+        [13], 
+        [13],
+        [13]],
+
+        [[14, 14, 14],
+         [14, 0, 0]],
+
+        [[15, 0],
+         [15, 0],
+         [15, 15]],
+
+        [[16, 16],
+         [0,  16],
+         [0,  16]],
+
+        [[17, 17, 17],
+         [0,  0,  17]],
+
+        [[18, 18],
+         [18, 0],
+         [18, 0]],
+
+        [[0,  19],
+         [0,  19],
+         [19, 19]],
+
     ]
 
     def __init__(self, height=20, width=10, block_size=20, simplified_feature=False):
@@ -153,6 +316,20 @@ class Tetris:
             curr_piece = self.rotate(curr_piece)
         return states
 
+    def _get_board(self):
+        board = self.get_current_board_state()
+        board = (np.array(board) > 0).astype(int)
+        return board
+
+    def _get_board_ram(self):
+        board = [x[:] for x in self.board]
+        board = (np.array(board) > 0).astype(int)
+        return board
+
+    def update_board(self, board : np.ndarray):
+        # Warning: will remove all the piece indices inside the board (set to 1)
+        self.board = board.tolist()
+
     def get_current_board_state(self):
         board = [x[:] for x in self.board]
         for y in range(len(self.piece)):
@@ -165,6 +342,15 @@ class Tetris:
             self.bag = list(range(len(self.pieces)))
             random.shuffle(self.bag)
         self.ind = self.bag.pop()
+        self.piece = [row[:] for row in self.pieces[self.ind]]
+        self.current_pos = {"x": self.width // 2 - len(self.piece[0]) // 2,
+                            "y": 0
+                            }
+        if self.check_collision(self.piece, self.current_pos):
+            self.gameover = True
+
+    def set_new_piece(self, ind):
+        self.ind = ind
         self.piece = [row[:] for row in self.pieces[self.ind]]
         self.current_pos = {"x": self.width // 2 - len(self.piece[0]) // 2,
                             "y": 0
@@ -293,3 +479,11 @@ class Tetris:
         if render:
             cv2.imshow("Deep Q-Learning Tetris", img)
             cv2.waitKey(1)
+
+
+if __name__ == "__main__":
+    env = gym.make('Tetris-v0')
+    env = SymbolTetrisSimple(env)
+    obs = env.reset()
+    obs, reward, done = env.step(0)
+    

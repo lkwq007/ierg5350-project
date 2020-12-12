@@ -75,7 +75,8 @@ def train(args):
     if os.path.isdir(args.log_path):
         shutil.rmtree(args.log_path)
     os.makedirs(args.log_path)
-    os.makedirs(args.saved_path)
+    if not os.path.exists(args.saved_path):
+        os.makedirs(args.saved_path)
     writer = SummaryWriter(args.log_path)
     env = Tetris(width=args.width,
                  height=args.height,
