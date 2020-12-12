@@ -2,7 +2,7 @@
 # http://lusob.com
 # Released under a "Simplified BSD" license
 
-import random, time, pygame, sys
+import random, pygame, sys
 from pygame.locals import *
 import os
 os.environ["SDL_VIDEODRIVER"] = "dummy"
@@ -172,9 +172,6 @@ class GameState:
 
         # setup variables for the start of the game
         self.board = self.getBlankBoard()
-        self.lastMoveDownTime = time.time()
-        self.lastMoveSidewaysTime = time.time()
-        self.lastFallTime = time.time()
         self.movingDown = False # note: there is no movingUp variable
         self.movingLeft = False
         self.movingRight = False
@@ -192,9 +189,6 @@ class GameState:
 
     def reinit(self):
         self.board = self.getBlankBoard()
-        self.lastMoveDownTime = time.time()
-        self.lastMoveSidewaysTime = time.time()
-        self.lastFallTime = time.time()
         self.movingDown = False # note: there is no movingUp variable
         self.movingLeft = False
         self.movingRight = False
@@ -223,7 +217,6 @@ class GameState:
             # No falling piece in play, so start a new piece at the top
             self.fallingPiece = self.nextPiece
             self.nextPiece = self.getNewPiece()
-            self.lastFallTime = time.time() # reset self.lastFallTime
 
             if not self.isValidPosition():
                 image_data = pygame.surfarray.array3d(pygame.display.get_surface())
@@ -238,13 +231,11 @@ class GameState:
             self.fallingPiece['x'] -= 1
             self.movingLeft = True
             self.movingRight = False
-            self.lastMoveSidewaysTime = time.time()
 
         elif (input[3] == 1) and self.isValidPosition(adjX=1):
             self.fallingPiece['x'] += 1
             self.movingRight = True
             self.movingLeft = False
-            self.lastMoveSidewaysTime = time.time()
 
         # rotating the piece (if there is room to rotate)
         elif (input[2] == 1):
@@ -268,16 +259,16 @@ class GameState:
             self.fallingPiece['y'] += i - 1
 
         # handle moving the piece because of user input
-        if (self.movingLeft or self.movingRight):
-            if self.movingLeft and self.isValidPosition(adjX=-1):
-                self.fallingPiece['x'] -= 1
-            elif self.movingRight and self.isValidPosition(adjX=1):
-                self.fallingPiece['x'] += 1
-            self.lastMoveSidewaysTime = time.time()
+        # if (self.movingLeft or self.movingRight):
+        #     if self.movingLeft and self.isValidPosition(adjX=-1):
+        #         self.fallingPiece['x'] -= 1
+        #     elif self.movingRight and self.isValidPosition(adjX=1):
+        #         self.fallingPiece['x'] += 1
+        #     self.lastMoveSidewaysTime = time.time()
 
-        if self.movingDown:
-            self.fallingPiece['y'] += 1
-            self.lastMoveDownTime = time.time()
+        # if self.movingDown and self.isValidPosition(adjY=1):
+        #     self.fallingPiece['y'] += 1
+        #     self.lastMoveDownTime = time.time()
 
         # let the piece fall if it is time to fall
         # see if the piece has landed
