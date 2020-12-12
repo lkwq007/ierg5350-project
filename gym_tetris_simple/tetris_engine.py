@@ -376,7 +376,7 @@ class GameState:
         newPiece = {'shape': shape,
                     'rotation': random.randint(0, len(PIECES[shape]) - 1),
                     'x': int(BOARDWIDTH / 2) - int(TEMPLATEWIDTH / 2),
-                    'y': 0, # start it above the self.board (i.e. less than 0)
+                    'y': -1, # start it above the self.board (i.e. less than 0)
                     'color': random.randint(0, len(COLORS)-1)}
         return newPiece
 
