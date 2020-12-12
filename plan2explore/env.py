@@ -197,7 +197,7 @@ class GameEnv():
     symbolic=True
     self.symbolic = symbolic
     # self._env = gym.make(env)
-    self._env = gym_tetris.make(env)
+    self._env = gym.make(env)
     self._env.seed(seed)
     if symbolic:
       self._env=SymbolTetrisSimple(self._env)
@@ -236,7 +236,7 @@ class GameEnv():
     action = action.argmax().item()
     reward = 0
     state, done = None, None
-    last_board=self._get_board_ram()
+    # last_board=self._get_board_ram()
     for k in range(1):
       state, reward_k, done, _ = self._env.step(action)
       reward += reward_k
@@ -244,21 +244,21 @@ class GameEnv():
       done = done or self.t == self.max_episode_length
       if done:
         break
-    if reward>0:
-      board=last_board
-    else:
-      board=self._get_board_ram()
-    if (reward>0) and self.add_reward:
-      bumpiness, heights, holes, max_heights=get_bumpiness_height_hole(board)
-      score = 6.76*reward - 0.51*heights - 0.36*holes - 0.28*bumpiness - 0.5*max_heights
-      reward = score-self.score
-      self.score=score
-      # reward+=self.acc
-      # if info['board_height']>10:
-      #   reward-=self.acc
-    reward+=self.living if action==0 else self.living/2
-    if done:
-      reward+=self.die
+    # if reward>0:
+    #   board=last_board
+    # else:
+    #   board=self._get_board_ram()
+    # if (reward>0) and self.add_reward:
+    #   bumpiness, heights, holes, max_heights=get_bumpiness_height_hole(board)
+    #   score = 6.76*reward - 0.51*heights - 0.36*holes - 0.28*bumpiness - 0.5*max_heights
+    #   reward = score-self.score
+    #   self.score=score
+    #   # reward+=self.acc
+    #   # if info['board_height']>10:
+    #   #   reward-=self.acc
+    # reward+=self.living if action==0 else self.living/2
+    # if done:
+    #   reward+=self.die
     if self.symbolic:
       observation = torch.tensor(state, dtype=torch.float32).unsqueeze(dim=0)
     else:
@@ -390,7 +390,7 @@ class GymEnv():
 
 
 def Env(env, symbolic, seed, max_episode_length, action_repeat, bit_depth, args):
-  if env=="Tetris_v0":
+  if env=="Tetris-v0":
     return GameEnv(env, symbolic, seed, max_episode_length, action_repeat, bit_depth, args) 
   if env in GYM_ENVS:
     return GymEnv(env, symbolic, seed, max_episode_length, action_repeat, bit_depth, args)
