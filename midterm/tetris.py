@@ -83,7 +83,7 @@ def get_bumpiness_height_hole(board):
     return total_bumpiness, total_height, total_height-total_cell, max_height
 
 class SymbolTetrisSimple(gym.Wrapper):
-    def __init__(self, env, add_reward=False, old_reward=True, max_episode_length=100):
+    def __init__(self, env, add_reward=False, old_reward=True, max_episode_length=100, align=True):
         gym.Wrapper.__init__(self, env)
         shp = env.observation_space.shape
         # set 
@@ -93,6 +93,7 @@ class SymbolTetrisSimple(gym.Wrapper):
         self.add_reward = add_reward
         self.old_reward = old_reward
         self.max_episode_length = max_episode_length
+        self.align = align
         self.t = 0
         if not self.add_reward:
             self.die = 0
@@ -108,21 +109,22 @@ class SymbolTetrisSimple(gym.Wrapper):
         total_reward = 0.0
         total_cleared = 0
         # align fallingPiece
-        while self.env.game_state.fallingPiece is not None and not done:
-            if self.env.game_state.fallingPiece['rotation'] == 0:
-                break
-            if self.env.game_state.fallingPiece['rotation'] == 1:
-                next_obs, reward, done, _, cleared = self.step_kernel(5, video) # rotate
-                total_reward += reward
-                total_cleared += cleared
-                obs = next_obs
-            else:
-                next_obs, reward, done, _, cleared = self.step_kernel(2, video) # rotate
-                total_reward += reward
-                total_cleared += cleared
-                obs = next_obs
-            if done:
-                break
+        if self.align:
+            while self.env.game_state.fallingPiece is not None and not done:
+                if self.env.game_state.fallingPiece['rotation'] == 0:
+                    break
+                if self.env.game_state.fallingPiece['rotation'] == 1:
+                    next_obs, reward, done, _, cleared = self.step_kernel(5, video) # rotate
+                    total_reward += reward
+                    total_cleared += cleared
+                    obs = next_obs
+                else:
+                    next_obs, reward, done, _, cleared = self.step_kernel(2, video) # rotate
+                    total_reward += reward
+                    total_cleared += cleared
+                    obs = next_obs
+                if done:
+                    break
         if self.env.game_state.fallingPiece is not None and not done:
             fallingPieceID = LUT_FOR_ROM_PIECE_2PIECE_ID[self.env.game_state.fallingPiece['shape']]
         if self.env.game_state.nextPiece is not None and not done:
@@ -177,16 +179,11 @@ class SymbolTetrisSimple(gym.Wrapper):
         # rotate
         if self.env.game_state.fallingPiece is not None and not done:
             if num_rotations == 1:
-                next_obs, reward, done, _, cleared = self.step_kernel(5, video) # rotate -90
-                total_reward += reward
-                total_cleared += cleared
-                obs = next_obs
-            elif num_rotations == 2:
                 next_obs, reward, done, _, cleared = self.step_kernel(2, video) # rotate 90
                 total_reward += reward
                 total_cleared += cleared
                 obs = next_obs
-            elif num_rotations == 3:
+            elif num_rotations == 2:
                 for _ in range(2):
                     next_obs, reward, done, _, cleared = self.step_kernel(2, video) # rotate 180
                     total_reward += reward
@@ -196,6 +193,11 @@ class SymbolTetrisSimple(gym.Wrapper):
                         break
                     if done:
                         break
+            elif num_rotations == 3:
+                next_obs, reward, done, _, cleared = self.step_kernel(5, video) # rotate -90
+                total_reward += reward
+                total_cleared += cleared
+                obs = next_obs
         # move left/right
         if self.env.game_state.fallingPiece is not None and not done:
             fallingPiece = self.env.game_state.fallingPiece
@@ -237,21 +239,22 @@ class SymbolTetrisSimple(gym.Wrapper):
             total_cleared += cleared
             obs = next_obs
             # align fallingPiece
-            while self.env.game_state.fallingPiece is not None and not done:
-                if self.env.game_state.fallingPiece['rotation'] == 0:
-                    break
-                if self.env.game_state.fallingPiece['rotation'] == 1:
-                    next_obs, reward, done, _, cleared = self.step_kernel(5, video) # rotate
-                    total_reward += reward
-                    total_cleared += cleared
-                    obs = next_obs
-                else:
-                    next_obs, reward, done, _, cleared = self.step_kernel(2, video) # rotate
-                    total_reward += reward
-                    total_cleared += cleared
-                    obs = next_obs
-                if done:
-                    break
+            if self.align:
+                while self.env.game_state.fallingPiece is not None and not done:
+                    if self.env.game_state.fallingPiece['rotation'] == 0:
+                        break
+                    if self.env.game_state.fallingPiece['rotation'] == 1:
+                        next_obs, reward, done, _, cleared = self.step_kernel(5, video) # rotate
+                        total_reward += reward
+                        total_cleared += cleared
+                        obs = next_obs
+                    else:
+                        next_obs, reward, done, _, cleared = self.step_kernel(2, video) # rotate
+                        total_reward += reward
+                        total_cleared += cleared
+                        obs = next_obs
+                    if done:
+                        break
             if self.env.game_state.fallingPiece is not None and not done:
                 fallingPieceID = LUT_FOR_ROM_PIECE_2PIECE_ID[self.env.game_state.fallingPiece['shape']]
             if self.env.game_state.nextPiece is not None and not done:
@@ -274,11 +277,19 @@ class SymbolTetrisSimple(gym.Wrapper):
 
     @property
     def num_tetris_kind(self):
-        return 7
+        return 7 if self.align else 19
 
     @property
     def action_size(self):
         return self.action_space.n
+    
+    @property
+    def game_board_width(self):
+        return 10
+
+    @property
+    def game_board_height(self):
+        return 20
 
 class Tetris:
     piece_colors = [

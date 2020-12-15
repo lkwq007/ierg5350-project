@@ -60,7 +60,7 @@ device = torch.device("cuda:{}".format(args.gpu) if torch.cuda.is_available() el
 
 env = SymbolTetrisSimple(gym.make('Tetris-v0'), 
                         max_episode_length=args.max_episode_length)
-n_actions = 40 # board_width * rotation
+n_actions = env.game_board_width * 4 # board_width * rotation
 
 policy_net = SimpleTetrisDQN().to(device)
 target_net = SimpleTetrisDQN().to(device)
@@ -69,7 +69,9 @@ target_net.eval()
 optimizer = torch.optim.Adam(policy_net.parameters(), lr=args.lr)
 criterion = nn.MSELoss()
 
-memory = ReplayBuffer(200, 1, 14, device=device, max_size=args.replay_memory_size) 
+state_size = env.game_board_width * env.game_board_height
+info_size = 2 * env.num_tetris_kind
+memory = ReplayBuffer(state_size, 1, info_size, device=device, max_size=args.replay_memory_size) 
 
 
 def select_action(state, info, i_episode):
