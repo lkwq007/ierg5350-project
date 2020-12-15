@@ -462,6 +462,8 @@ class Tetris:
             num_rotations = 1
         elif piece_id == 2 or piece_id == 3 or piece_id == 4:
             num_rotations = 2
+        elif piece_id == 10 or piece_id == 11 or piece_id == 12:
+            num_rotations = 2
         else:
             num_rotations = 4
 
