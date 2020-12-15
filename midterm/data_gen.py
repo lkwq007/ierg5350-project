@@ -17,7 +17,8 @@ parser.add_argument("--block_size", type=int, default=5, help="Size of a block")
 parser.add_argument("--experience_size", type=int, default=1000000, help="Size of a block")
 parser.add_argument("--fps", type=int, default=1, help="frames per second")
 parser.add_argument("--saved_path", type=str, default="output")
-parser.add_argument("--output", type=str, default="video.avi")
+parser.add_argument("--output", type=str, default="buffer_new.npz")
+parser.add_argument("--out_video", type=str, default="video.avi")
 parser.add_argument("--gpu", type=int, default=0)
 parser.add_argument("--gui_render", type=str2bool, default=False)
 args = parser.parse_args()
@@ -67,7 +68,7 @@ def apply_sim_to_rom(
     if rom_env.game_state.fallingPiece is not None and not done:
         act = 2
         for _ in range(num_rotations):
-            next_obs, reward, done, _, line = rom_env.step(act) # up (rotate)
+            next_obs, reward, done, _, line = rom_env.step_kernel(act) # up (rotate)
             save_step(args, obs, act, reward, done, line)
             obs = next_obs
             if rom_env.game_state.fallingPiece is None:
@@ -89,7 +90,7 @@ def apply_sim_to_rom(
         if offset != 0:
             act = 1 if offset < 0 else 3 # 1: left, 3: right
             for i in range(abs(offset)):
-                next_obs, reward, done, _, line = rom_env.step(act) # move left or right
+                next_obs, reward, done, _, line = rom_env.step_kernel(act) # move left or right
                 save_step(args, obs, act, reward, done, line)
                 obs = next_obs
                 if rom_env.game_state.fallingPiece is None:
@@ -99,7 +100,7 @@ def apply_sim_to_rom(
     # down
     while rom_env.game_state.fallingPiece is not None and not done:
         act = 4
-        next_obs, reward, done, _, line = rom_env.step(act) # down
+        next_obs, reward, done, _, line = rom_env.step_kernel(act) # down
         save_step(args, obs, act, reward, done, line)
         obs = next_obs
         if done:
@@ -120,13 +121,13 @@ def test(args):
     env = Tetris(width=args.width, height=args.height, block_size=args.block_size)
     if args.gui_render:
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        out = cv2.VideoWriter("{}/{}".format(args.saved_path, args.output), fourcc, args.fps,
+        out = cv2.VideoWriter("{}/{}".format(args.saved_path, args.out_video), fourcc, args.fps,
                                 (args.width*args.block_size, args.height*args.block_size))
     episodes = 0
     
     while not finish_saving:
-        rom_obs = rom_env.reset()
-        save_step(args, rom_obs, 0, 0.0, False, 0)
+        rom_obs, reward, rom_done, _, line = rom_env.reset()
+        save_step(args, rom_obs, 0, reward, rom_done, line)
         env.reset()
         env.set_new_piece(rom2sim_id(rom_env.game_state.fallingPiece))
         counter = 0
@@ -150,7 +151,7 @@ def test(args):
                 env.set_new_piece(rom2sim_id(rom_env.game_state.nextPiece))
 
             # skip fallingPiece is None (next obs: new piece will appear)
-            next_rom_obs, reward, rom_done, _, line = rom_env.step(0) 
+            next_rom_obs, reward, rom_done, _, line = rom_env.step_kernel(0) 
             save_step(args, rom_obs, 0, reward, rom_done, line)
             rom_obs = next_rom_obs
             done = rom_done or done
@@ -171,7 +172,7 @@ def test(args):
     
     print("Saving buffer...")
     rom_env.close()
-    np.savez(os.path.join("output", "buffer.npz"), 
+    np.savez(os.path.join(args.saved_path, args.output), 
         all_reward=all_reward, 
         all_action=all_action, 
         all_line=all_line, 

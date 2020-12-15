@@ -11,38 +11,28 @@ from torch.utils.tensorboard import SummaryWriter
 
 from model import DQN
 from tetris import Tetris
-from utils import ReplayBuffer
+from utils import ReplayBufferOld
 import utils
 
 def get_args():
     parser = argparse.ArgumentParser(
         "Implementation of Deep Q Network to play Tetris")
-    parser.add_argument("--width",
-                        type=int,
-                        default=10,
+    parser.add_argument("--width",type=int,default=10,
                         help="The common width for all images")
-    parser.add_argument("--height",
-                        type=int,
-                        default=20,
+    parser.add_argument("--height",type=int,default=20,
                         help="The common height for all images")
-    parser.add_argument("--block_size",
-                        type=int,
-                        default=30,
+    parser.add_argument("--block_size",type=int,default=30,
                         help="Size of a block")
-    parser.add_argument("--batch_size",
-                        type=int,
-                        default=512,
+    parser.add_argument("--batch_size",type=int,default=512,
                         help="The number of images per batch")
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--initial_epsilon", type=float, default=1)
     parser.add_argument("--final_epsilon", type=float, default=1e-3)
     parser.add_argument("--num_decay_epochs", type=float, default=2000)
-    parser.add_argument("--num_epochs", type=int, default=4000)
-    parser.add_argument("--save_interval", type=int, default=1000)
-    parser.add_argument("--replay_memory_size",
-                        type=int,
-                        default=30000,
+    parser.add_argument("--num_episodes", type=int, default=5000)
+    parser.add_argument("--save_interval", type=int, default=500)
+    parser.add_argument("--replay_memory_size",type=int,default=30000,
                         help="Number of epoches between testing phases")
     parser.add_argument("--log_path", type=str, default="runs")
     parser.add_argument("--saved_path", type=str, default="output")
@@ -90,10 +80,10 @@ def train(args):
     state = env.reset()
     model.to(device)
 
-    replay_memory = ReplayBuffer(22, 2, device=device,
+    replay_memory = ReplayBufferOld(22, 2, device=device,
         max_size=args.replay_memory_size)  # action = [x_axis, rotate_times]
-    epoch = 0
-    while epoch < args.num_epochs:
+    episode = 0
+    while episode < args.num_episodes:
         next_steps = env.get_next_states()
 
         next_actions, next_states = zip(*next_steps.items())
@@ -102,7 +92,7 @@ def train(args):
         model.eval()
         with torch.no_grad():
             predictions = model(next_states)[:, 0]
-        index = get_action_index(args, epoch, predictions, next_steps)
+        index = get_action_index(args, episode, predictions, next_steps)
         model.train()
 
         next_state = next_states[index, :]
@@ -123,7 +113,7 @@ def train(args):
         if len(replay_memory) < args.replay_memory_size:
             print("Current Memory Size: %d" % len(replay_memory))
             continue
-        epoch += 1
+        episode += 1
         batch = replay_memory.sample(args.batch_size)
         state_batch, action_batch, next_state_batch, reward_batch, done_batch = batch
 
@@ -142,16 +132,16 @@ def train(args):
         optimizer.step()
 
         print(
-            "Epoch: {}/{}, Action: {}, Score: {}, Tetrominoes {}, Cleared lines: {}"
-            .format(epoch, args.num_epochs, action, final_score,
+            "Episode: {}/{}, Action: {}, Score: {}, Tetrominoes {}, Cleared lines: {}"
+            .format(episode, args.num_episodes, action, final_score,
                     final_tetrominoes, final_cleared_lines))
-        writer.add_scalar('Train/Score', final_score, epoch - 1)
-        writer.add_scalar('Train/Tetrominoes', final_tetrominoes, epoch - 1)
+        writer.add_scalar('Train/Score', final_score, episode - 1)
+        writer.add_scalar('Train/Tetrominoes', final_tetrominoes, episode - 1)
         writer.add_scalar('Train/Cleared lines', final_cleared_lines,
-                          epoch - 1)
+                          episode - 1)
 
-        if epoch > 0 and epoch % args.save_interval == 0:
-            torch.save(model, "{}/tetris_{}".format(args.saved_path, epoch))
+        if episode > 0 and episode % args.save_interval == 0:
+            torch.save(model, "{}/tetris_{}".format(args.saved_path, episode))
 
     torch.save(model, "{}/tetris".format(args.saved_path))
 

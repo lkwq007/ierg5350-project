@@ -3,6 +3,7 @@ import torch
 import cv2
 from tetris import Tetris
 from utils import str2bool
+import numpy as np
 
 def get_args():
     parser = argparse.ArgumentParser("Implementation of Deep Q Network to play Tetris")
@@ -26,18 +27,20 @@ def test(args):
     else:
         torch.manual_seed(0)
     device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() else 'cpu')
-    model = torch.load("{}/tetris".format(args.saved_path)).to(device)
+    model = torch.load("{}/tetris_5000".format(args.saved_path)).to(device)
 
     model.eval()
     env = Tetris(width=args.width, height=args.height, block_size=args.block_size)
     env.reset()
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    out = cv2.VideoWriter("{}/{}".format(args.saved_path, args.output), fourcc, args.fps,
-                          (int(1.5*args.width*args.block_size), args.height*args.block_size))
+    out = None
+    if args.gui_render:
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        out = cv2.VideoWriter("{}/{}".format(args.saved_path, args.output), fourcc, args.fps,
+                            (int(1.5*args.width*args.block_size), args.height*args.block_size))
     counter = 0
     while True:
         if counter % 100 == 0:
-            print("Counter: %d" % counter)
+            print("Counter: %d Lines: %d" % (counter, env.cleared_lines))
         next_steps = env.get_next_states()
         next_actions, next_states = zip(*next_steps.items())
         next_states = torch.stack(next_states).to(device)
@@ -47,11 +50,19 @@ def test(args):
         _, done = env.step(action, render=args.gui_render, video=out)
         counter += 1
         if done:
-            out.release()
+            if args.gui_render:
+                out.release()
             break
+    return env.cleared_lines
         
 
 
 if __name__ == "__main__":
-    args = get_args()
-    test(args)
+    test_num = 10
+    test_res = np.zeros(test_num)
+    for i in range(test_num):
+        print("Test Episode: %d" % i)
+        args = get_args()
+        test_res[i] = test(args)
+    print(test_res, test_res.mean(), test_res.std())
+

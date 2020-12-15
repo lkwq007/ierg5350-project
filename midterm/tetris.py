@@ -13,6 +13,9 @@ import random
 import gym_tetris_simple
 import gym
 from gym import spaces
+from gym_tetris_simple.tetris_engine import PIECES, TEMPLATEWIDTH, TEMPLATEHEIGHT, BOARDWIDTH
+import math
+import torch.nn.functional as F
 
 style.use("ggplot")
 
@@ -26,13 +29,23 @@ SIMPLE_MOVEMENT = [
 ]
 
 LUT_FOR_ROM_PIECE_2SIM_PIECE_ID = {
+    'O': {0:1},
+    'T': {0:2, 1:10, 2:8, 3:9},
     'S': {0:3, 1:11},
     'Z': {0:4, 1:12},
-    'I': {0:13, 1:5},
-    'O': {0:1},
-    'J': {0:7, 1:18, 2:17, 3:19},
+    'I': {0:5, 1:13},
     'L': {0:6, 1:15, 2:14, 3:16},
-    'T': {0:2, 1:10, 2:8, 3:9},
+    'J': {0:7, 1:18, 2:17, 3:19},
+}
+
+LUT_FOR_ROM_PIECE_2PIECE_ID = {
+    'O': 0,
+    'T': 1,
+    'S': 2,
+    'Z': 3,
+    'I': 4,
+    'L': 5,
+    'J': 6,
 }
 
 def rom2sim_id(rom_piece):
@@ -70,7 +83,7 @@ def get_bumpiness_height_hole(board):
     return total_bumpiness, total_height, total_height-total_cell, max_height
 
 class SymbolTetrisSimple(gym.Wrapper):
-    def __init__(self, env, add_reward=True):
+    def __init__(self, env, add_reward=False, old_reward=True, max_episode_length=100):
         gym.Wrapper.__init__(self, env)
         shp = env.observation_space.shape
         # set 
@@ -78,13 +91,45 @@ class SymbolTetrisSimple(gym.Wrapper):
         self.die = -50
         self.score = 0.0
         self.add_reward = add_reward
+        self.old_reward = old_reward
+        self.max_episode_length = max_episode_length
+        self.t = 0
         if not self.add_reward:
             self.die = 0
 
-    def reset(self):
+    def reset(self, video=None):
         obs = self.env.reset()
         self.score = 0.0
-        return self._get_board(obs)
+        self.t = 0
+
+        fallingPieceID = 0 # fallingPiece is None
+        nextPieceID = 0 # nextPiece is None
+        done = False
+        total_reward = 0.0
+        total_cleared = 0
+        # align fallingPiece
+        while self.env.game_state.fallingPiece is not None and not done:
+            if self.env.game_state.fallingPiece['rotation'] == 0:
+                break
+            if self.env.game_state.fallingPiece['rotation'] == 1:
+                next_obs, reward, done, _, cleared = self.step_kernel(5, video) # rotate
+                total_reward += reward
+                total_cleared += cleared
+                obs = next_obs
+            else:
+                next_obs, reward, done, _, cleared = self.step_kernel(2, video) # rotate
+                total_reward += reward
+                total_cleared += cleared
+                obs = next_obs
+            if done:
+                break
+        if self.env.game_state.fallingPiece is not None and not done:
+            fallingPieceID = LUT_FOR_ROM_PIECE_2PIECE_ID[self.env.game_state.fallingPiece['shape']]
+        if self.env.game_state.nextPiece is not None and not done:
+            nextPieceID = LUT_FOR_ROM_PIECE_2PIECE_ID[self.env.game_state.nextPiece['shape']]
+        info = self.get_onehot((fallingPieceID, nextPieceID))
+        # return self._get_board(obs), reward, done, info, cleared
+        return self._get_board_ram(), total_reward, done, info, total_cleared # TODO: use ram board only
     
     def _get_board(self,obs):
         return crop_image_simple(obs).reshape(-1)
@@ -96,23 +141,140 @@ class SymbolTetrisSimple(gym.Wrapper):
         board=board.astype(np.float32).transpose(1,0)
         return board
 
-    def step(self, action):            
-        obs, reward, done, info = self.env.step(action)
-        cleared = reward / 100
-
+    def step_kernel(self, action, video=None):            
+        obs, reward, done, _ = self.env.step(action)
+        if video is not None:
+            video.write(cv2.flip(self.env.render(mode='rgb_array'), 1))
+        cleared = round(reward / 100)
+        
+        if self.old_reward:
+            score = math.pow(cleared, 2) * 10 # cleared^2 * width 
+            self.score += score
+            if done:
+                reward -= 2
+                self.score -=2
+            reward = score
         # reward shaping
         if self.add_reward:
             board=self._get_board_ram()
             bumpiness, heights, holes, max_heights = get_bumpiness_height_hole(board)
-            score = 0.76*cleared - 0.51*heights - 0.36*holes - 0.18*bumpiness
+            score = 4.76*cleared - 0.51*heights - 0.36*holes - 0.18*bumpiness
             reward = score - self.score
             self.score = score
         
-        return self._get_board(obs), reward, done, info, cleared
+        return self._get_board(obs), reward, done, None, cleared
+
+    def step(self, sim_action, video=None):
+        piece_left_pos_x = sim_action % 10
+        num_rotations = sim_action // 10
+        flag = False
+        done = False
+        total_cleared = 0
+        if self.old_reward:
+            total_reward = 1.0 # living reward
+        else:
+            total_reward = 0.0
+        # rotate
+        if self.env.game_state.fallingPiece is not None and not done:
+            if num_rotations == 1:
+                next_obs, reward, done, _, cleared = self.step_kernel(5, video) # rotate -90
+                total_reward += reward
+                total_cleared += cleared
+                obs = next_obs
+            elif num_rotations == 2:
+                next_obs, reward, done, _, cleared = self.step_kernel(2, video) # rotate 90
+                total_reward += reward
+                total_cleared += cleared
+                obs = next_obs
+            elif num_rotations == 3:
+                for _ in range(2):
+                    next_obs, reward, done, _, cleared = self.step_kernel(2, video) # rotate 180
+                    total_reward += reward
+                    total_cleared += cleared
+                    obs = next_obs
+                    if self.env.game_state.fallingPiece is None:
+                        break
+                    if done:
+                        break
+        # move left/right
+        if self.env.game_state.fallingPiece is not None and not done:
+            fallingPiece = self.env.game_state.fallingPiece
+            center_x_in_rom = 11
+            init_x = int(BOARDWIDTH / 2) - int(TEMPLATEWIDTH / 2)
+            for x in range(TEMPLATEWIDTH):
+                for y in range(TEMPLATEHEIGHT):
+                    isAboveBoard = y + fallingPiece['y'] < 0
+                    if isAboveBoard or PIECES[fallingPiece['shape']][fallingPiece['rotation']][y][x] == '.':
+                        continue
+                    center_x_in_rom = min(center_x_in_rom, x+init_x)
+            offset = piece_left_pos_x - center_x_in_rom
+            if offset != 0:
+                act = 1 if offset < 0 else 3 # 1: left, 3: right
+                for i in range(abs(offset)):
+                    next_obs, reward, done, _, cleared = self.step_kernel(act, video) # move left or right
+                    total_reward += reward
+                    total_cleared += cleared
+                    obs = next_obs
+                    if self.env.game_state.fallingPiece is None:
+                        break
+                    if done:
+                        break
+        # down
+        while self.env.game_state.fallingPiece is not None and not done:
+            act = 4
+            next_obs, reward, done, _, cleared = self.step_kernel(act, video) # down
+            total_reward += reward
+            total_cleared += cleared
+            obs = next_obs
+            if done:
+                break
+        # get next piece
+        fallingPieceID = 0 # fallingPiece is None
+        nextPieceID = 0 # nextPiece is None
+        if not done:
+            next_obs, reward, done, _, cleared = self.step_kernel(0, video) # none
+            total_reward += reward
+            total_cleared += cleared
+            obs = next_obs
+            # align fallingPiece
+            while self.env.game_state.fallingPiece is not None and not done:
+                if self.env.game_state.fallingPiece['rotation'] == 0:
+                    break
+                if self.env.game_state.fallingPiece['rotation'] == 1:
+                    next_obs, reward, done, _, cleared = self.step_kernel(5, video) # rotate
+                    total_reward += reward
+                    total_cleared += cleared
+                    obs = next_obs
+                else:
+                    next_obs, reward, done, _, cleared = self.step_kernel(2, video) # rotate
+                    total_reward += reward
+                    total_cleared += cleared
+                    obs = next_obs
+                if done:
+                    break
+            if self.env.game_state.fallingPiece is not None and not done:
+                fallingPieceID = LUT_FOR_ROM_PIECE_2PIECE_ID[self.env.game_state.fallingPiece['shape']]
+            if self.env.game_state.nextPiece is not None and not done:
+                nextPieceID = LUT_FOR_ROM_PIECE_2PIECE_ID[self.env.game_state.nextPiece['shape']]
+        info = self.get_onehot((fallingPieceID, nextPieceID))
+        self.t += 1
+        done = done or self.t == self.max_episode_length
+        return self._get_board_ram(), total_reward, done, info, total_cleared
+    
+    def get_onehot(self, info):
+        fall_info = np.zeros(self.num_tetris_kind, dtype=np.float32)
+        fall_info[info[0]] = 1
+        next_info = np.zeros(self.num_tetris_kind, dtype=np.float32)
+        next_info[info[1]] = 1
+        return np.concatenate((fall_info, next_info), axis=None)
     
     @property
     def observation_size(self):
         return self.observation_space.shape[0]
+
+    @property
+    def num_tetris_kind(self):
+        return 7
 
     @property
     def action_size(self):
@@ -155,7 +317,10 @@ class Tetris:
         [[4, 4, 0],
          [0, 4, 4]],
 
-        [[5, 5, 5, 5]],
+        [[5],
+        [5], 
+        [5],
+        [5]],
 
         [[0, 0, 6],
          [6, 6, 6]],
@@ -181,11 +346,8 @@ class Tetris:
         [[0 , 12],
          [12, 12],
          [12, 0 ]],
-        
-        [[13],
-        [13], 
-        [13],
-        [13]],
+
+        [[13, 13, 13, 13]],
 
         [[14, 14, 14],
          [14, 0, 0]],
