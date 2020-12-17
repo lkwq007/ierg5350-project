@@ -182,6 +182,8 @@ class GameState:
 
         self.fallingPiece = self.getNewPiece()
         self.nextPiece = self.getNewPiece()
+        self.pieceStepCnt = 0
+        self.moveDownFreq = 1
 
         self.frame_step([1,0,0,0,0,0])
 
@@ -199,6 +201,7 @@ class GameState:
 
         self.fallingPiece = self.getNewPiece()
         self.nextPiece = self.getNewPiece()
+        self.pieceStepCnt = 0
 
         self.frame_step([1,0,0,0,0,0])
 
@@ -216,6 +219,7 @@ class GameState:
         if self.fallingPiece == None:
             # No falling piece in play, so start a new piece at the top
             self.fallingPiece = self.nextPiece
+            self.pieceStepCnt = 1
             self.nextPiece = self.getNewPiece()
 
             if not self.isValidPosition():
@@ -273,35 +277,38 @@ class GameState:
         # let the piece fall if it is time to fall
         # see if the piece has landed
         cleared = 0
-        if not self.isValidPosition(adjY=1):
-            # falling piece has landed, set it on the self.board
-            self.addToBoard()
+        if self.pieceStepCnt % self.moveDownFreq == 0:
+            if not self.isValidPosition(adjY=1):
+                # falling piece has landed, set it on the self.board
+                self.addToBoard()
 
-            cleared = self.removeCompleteLines()
-            if cleared > 0:
-                if cleared == 1:
-                    self.score += 40 * self.level
-                elif cleared == 2:
-                    self.score += 100 * self.level
-                elif cleared == 3:
-                    self.score += 300 * self.level
-                elif cleared == 4:
-                    self.score += 1200 * self.level
+                cleared = self.removeCompleteLines()
+                if cleared > 0:
+                    if cleared == 1:
+                        self.score += 40 * self.level
+                    elif cleared == 2:
+                        self.score += 100 * self.level
+                    elif cleared == 3:
+                        self.score += 300 * self.level
+                    elif cleared == 4:
+                        self.score += 1200 * self.level
 
-            self.score += self.fallingPiece['y']
+                self.score += self.fallingPiece['y']
 
-            self.lines += cleared
-            self.total_lines += cleared
+                self.lines += cleared
+                self.total_lines += cleared
 
-            reward = self.height - self.getHeight()
-            self.height = self.getHeight()
+                reward = self.height - self.getHeight()
+                self.height = self.getHeight()
 
-            self.level, self.fallFreq = self.calculateLevelAndFallFreq()
-            self.fallingPiece = None
+                self.level, self.fallFreq = self.calculateLevelAndFallFreq()
+                self.fallingPiece = None
 
-        else:
-            # piece did not land, just move the piece down
-            self.fallingPiece['y'] += 1
+            else:
+                # piece did not land, just move the piece down
+                    self.fallingPiece['y'] += 1
+        
+        self.pieceStepCnt += 1
 
         # drawing everything on the screen
         DISPLAYSURF.fill(BGCOLOR)
