@@ -205,8 +205,9 @@ class SymbolTetrisSimple(gym.Wrapper):
             init_x = int(BOARDWIDTH / 2) - int(TEMPLATEWIDTH / 2)
             for x in range(TEMPLATEWIDTH):
                 for y in range(TEMPLATEHEIGHT):
-                    isAboveBoard = y + fallingPiece['y'] < 0
-                    if isAboveBoard or PIECES[fallingPiece['shape']][fallingPiece['rotation']][y][x] == '.':
+                    # isAboveBoard = y + fallingPiece['y'] < 0
+                    # if isAboveBoard or PIECES[fallingPiece['shape']][fallingPiece['rotation']][y][x] == '.':
+                    if PIECES[fallingPiece['shape']][fallingPiece['rotation']][y][x] == '.':
                         continue
                     center_x_in_rom = min(center_x_in_rom, x+init_x)
             offset = piece_left_pos_x - center_x_in_rom
