@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import random
+from tqdm import tqdm
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -14,17 +15,17 @@ def str2bool(v):
 
 class ReplayBuffer(object):
 	def __init__(self, state_dim, action_dim, info_dim, device=None, max_size=int(1e6)):
-		self.max_size = max_size
+		self.max_size = int(max_size)
 		self.ptr = 0
 		self.size = 0
 
-		self.state = np.zeros((max_size, state_dim))
-		self.action = np.zeros((max_size, action_dim))
-		self.next_state = np.zeros((max_size, state_dim))
-		self.reward = np.zeros((max_size, 1))
-		self.not_done = np.zeros((max_size, 1))
-		self.info = np.zeros((max_size, info_dim))
-		self.next_info = np.zeros((max_size, info_dim))
+		self.state = np.zeros((self.max_size, state_dim), dtype=np.bool)
+		self.action = np.zeros((self.max_size, action_dim), dtype=np.int8)
+		self.next_state = np.zeros((self.max_size, state_dim), dtype=np.bool)
+		self.reward = np.zeros((self.max_size, 1), dtype=np.float32)
+		self.not_done = np.zeros((self.max_size, 1), dtype=np.bool)
+		self.info = np.zeros((self.max_size, info_dim), dtype=np.bool)
+		self.next_info = np.zeros((self.max_size, info_dim), dtype=np.bool)
 
 		self.device = device
 
@@ -34,7 +35,7 @@ class ReplayBuffer(object):
 		self.action[self.ptr] = action
 		self.next_state[self.ptr] = next_state
 		self.reward[self.ptr] = reward
-		self.not_done[self.ptr] = 1. - done
+		self.not_done[self.ptr] = 1 - done
 		self.info[self.ptr] = info
 		self.next_info[self.ptr] = next_info
 
@@ -99,3 +100,21 @@ class ReplayBufferOld(object):
 			torch.FloatTensor(self.reward[ind]).to(self.device),
 			torch.FloatTensor(self.not_done[ind]).to(self.device)
 		)
+
+
+def load_dataset(memory: ReplayBuffer, dataset_path:str):
+    raw_data = np.load(dataset_path)
+    all_state = raw_data['all_state'].copy()
+    all_action = raw_data['all_action'].copy()
+    all_next_state = raw_data['all_next_state'].copy()
+    all_reward = raw_data['all_reward'].copy()
+    all_done = raw_data['all_done'].copy()
+    all_info = raw_data['all_info'].copy()
+    all_next_info = raw_data['all_next_info'].copy()
+    total_size = raw_data["all_reward"].shape[0]
+    print("Loading Memory...")
+    for i in tqdm(range(total_size)):
+        memory.add(all_state[i], all_action[i], 
+                all_next_state[i], all_reward[i], 
+                all_done[i], all_info[i], all_next_info[i])
+    return memory

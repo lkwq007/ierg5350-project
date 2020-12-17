@@ -29,7 +29,7 @@ def test(args, episodes=0):
     else:
         torch.manual_seed(0)
     device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() else 'cpu')
-    model = torch.load("{}/tetris_5000".format(args.saved_path)).to(device)
+    model = torch.load("{}/old_best5000_avg500_commit1015058/tetris_5000".format(args.saved_path), map_location=device)
     model.eval()
 
     rom_env = SymbolTetrisSimple(gym.make('Tetris-v0'), max_episode_length=-1, align=False)
@@ -78,7 +78,5 @@ if __name__ == "__main__":
     for i in range(test_num):
         print("Test Episode: %d" % i)
         test_res[i] = test(args, i)
-        if test_res[i] < 50:
-            break
     print(test_res, test_res.mean(), test_res.std())
     
