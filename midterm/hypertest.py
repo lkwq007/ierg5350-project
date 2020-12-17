@@ -1,7 +1,7 @@
 import argparse
 import torch
 import gym
-from model import SimpleTetrisDQN
+from model import SimpleTetrisDQN, SimpleTetrisConvDQN
 from tetris import SymbolTetrisSimple
 import cv2
 from utils import str2bool
@@ -14,7 +14,7 @@ def get_args():
     parser.add_argument("--block_size", type=int, default=5, help="Size of a block")
     parser.add_argument("--fps", type=int, default=10, help="frames per second")
     parser.add_argument("--saved_path", type=str, default="output")
-    parser.add_argument("--ckpt_name", type=str, default="tetris_4000.pth")
+    parser.add_argument("--ckpt_name", type=str, default="tetris_18000.pth")
     parser.add_argument("--out_video", type=str, default="video.avi")
     parser.add_argument("--sample_img", type=str, default="output.png")
     parser.add_argument("--gpu", type=int, default=1)
@@ -37,12 +37,17 @@ def test(args):
                                 (args.width*args.block_size, args.height*args.block_size))
     
     state_dicts = torch.load("{}/{}".format(args.saved_path, args.ckpt_name))
-    policy_net = SimpleTetrisDQN()
+    env = SymbolTetrisSimple(gym.make('Tetris-v0'), 
+                            max_episode_length=-1, align=False)
+    n_actions = env.game_board_width * 4 # board_width * rotation
+    state_size = env.game_board_width * env.game_board_height
+    info_size = 2 * env.num_tetris_kind
+
+    policy_net = SimpleTetrisConvDQN(state_size=state_size, info_size=info_size).to(device)
     policy_net.load_state_dict(state_dicts['policy_net'])
     policy_net.to(device)
     policy_net.eval()
     
-    env = SymbolTetrisSimple(gym.make('Tetris-v0'))
     state, reward, done, info, line = env.reset(video=out)
     
     state = state.reshape(-1)

@@ -19,12 +19,12 @@ from utils import ReplayBuffer, str2bool, load_dataset
 parser = argparse.ArgumentParser("Implementation of Deep Q Network to play Tetris")
 parser.add_argument("--block_size", type=int, default=30, help="Size of a block")
 parser.add_argument("--batch_size", type=int, 
-                default=512, help="The number of images per batch")
+                default=1024, help="The number of images per batch")
 parser.add_argument("--lr", type=float, default=5e-4)
 parser.add_argument("--gamma", type=float, default=0.999)
 parser.add_argument("--target_update", type=int, default=10)
-parser.add_argument("--initial_epsilon", type=float, default=0.9)
-parser.add_argument("--final_epsilon", type=float, default=0.01)
+parser.add_argument("--initial_epsilon", type=float, default=0.05)
+parser.add_argument("--final_epsilon", type=float, default=0.001)
 parser.add_argument("--eps_decay", type=float, default=10000)
 parser.add_argument("--num_episodes", type=int, default=1000000)
 parser.add_argument("--max_episode_length", type=int, default=3000)
@@ -34,6 +34,7 @@ parser.add_argument("--replay_memory_size", type=int, default=1e7,
 parser.add_argument("--log_path", type=str, default="runs")
 parser.add_argument("--saved_path", type=str, default="output")
 parser.add_argument("--imitation_data_path", type=str, default="output/buffer_imitation.npz")
+parser.add_argument("--imitation_episodes", type=int, default=1000000)
 parser.add_argument("--gpu", type=int, default=0)
 
 args = parser.parse_args()
@@ -45,7 +46,7 @@ TARGET_UPDATE = args.target_update
 EPS_START = args.initial_epsilon
 EPS_END = args.final_epsilon
 EPS_DECAY = args.eps_decay 
-
+imitation_loss_fn = nn.CrossEntropyLoss()
 
 if torch.cuda.is_available():
     torch.cuda.manual_seed(0)
@@ -73,7 +74,7 @@ optimizer = torch.optim.Adam(policy_net.parameters(), lr=args.lr)
 criterion = nn.MSELoss()
 
 memory = ReplayBuffer(state_size, 1, info_size, device=device, max_size=args.replay_memory_size) 
-# memory = load_dataset(memory, args.imitation_data_path) # for imitation learning
+memory = load_dataset(memory, args.imitation_data_path) # for imitation learning
 
 def select_action(state, info, i_episode):
     sample = random.random()
@@ -88,8 +89,6 @@ def select_action(state, info, i_episode):
 
 
 def optimize_model():
-    if len(memory) < 10000:
-        return
     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
     # detailed explanation). This converts batch-array of Transitions
     # to Transition of batch-arrays.
@@ -114,6 +113,33 @@ def optimize_model():
     optimizer.step()
 
 
+def imitation_learning():
+    batch = memory.sample(BATCH_SIZE)
+    state_batch, action_batch, next_state_batch, reward_batch, not_done_batch, info_batch, next_info_batch = batch
+
+    state_action_values = policy_net(state_batch, info_batch)
+
+    loss = imitation_loss_fn(state_action_values, action_batch.reshape(-1))
+
+    # Optimize the model
+    optimizer.zero_grad()
+    loss.backward()
+    # for param in policy_net.parameters():
+    #     param.grad.data.clamp_(-1, 1)
+    optimizer.step()
+    return loss.item()
+
+# imitation learning
+total_loss = 0.0
+for i in range(args.imitation_episodes):
+    loss = imitation_learning()
+    total_loss += loss
+    avg_loss = total_loss / (i+1)
+    if i % 100 == 0:
+        print("Episodes: %d/%d\tPolicy Loss: %.4f/Avg Loss: %.4f" % 
+            (i, args.imitation_episodes, loss, avg_loss))
+target_net.load_state_dict(policy_net.state_dict())
+print("Finish imitation learning")
 
 episode_durations = []
 all_steps = []
@@ -147,11 +173,6 @@ for i_episode in range(args.num_episodes):
             episode_durations.append(t + 1)
             break
     
-    if len(memory) < 10000:
-        if i_episode % 50 == 0:
-            print("Episode: %d Collecting... Memory Size: %d" % (i_episode, len(memory)))
-        continue
-
     if i_episode % TARGET_UPDATE == 0:
         target_net.load_state_dict(policy_net.state_dict())
 
