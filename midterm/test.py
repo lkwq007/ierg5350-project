@@ -13,6 +13,7 @@ def get_args():
     parser.add_argument("--block_size", type=int, default=30, help="Size of a block")
     parser.add_argument("--fps", type=int, default=300, help="frames per second")
     parser.add_argument("--saved_path", type=str, default="output")
+    parser.add_argument("--ckpt_name", type=str, default="tetris_24500.pth")
     parser.add_argument("--output", type=str, default="video.avi")
     parser.add_argument("--gpu", type=int, default=1)
     parser.add_argument("--gui_render", type=str2bool, default=False)
@@ -27,7 +28,7 @@ def test(args):
     else:
         torch.manual_seed(0)
     device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() else 'cpu')
-    model = torch.load("{}/tetris_5000".format(args.saved_path)).to(device)
+    model = torch.load("{}/{}".format(args.saved_path, args.ckpt_name), map_location=device)
 
     model.eval()
     env = Tetris(width=args.width, height=args.height, block_size=args.block_size)

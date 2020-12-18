@@ -385,7 +385,8 @@ class Tetris:
 
     ]
 
-    def __init__(self, height=20, width=10, block_size=20, simplified_feature=False):
+    def __init__(self, height=20, width=10, block_size=20, 
+                simplified_feature=False, sim_rom_mode=True):
         self.height = height
         self.width = width
         self.block_size = block_size
@@ -393,6 +394,7 @@ class Tetris:
                                    dtype=np.uint8) * np.array([204, 204, 255], dtype=np.uint8)
         self.text_color = (200, 20, 220)
         self.simplified_feature = simplified_feature
+        self.sim_rom_mode = sim_rom_mode
         self.reset()
 
     def reset(self):
@@ -483,6 +485,8 @@ class Tetris:
             valid_xs = self.width - len(curr_piece[0])
             for x in range(valid_xs + 1):
                 piece = [row[:] for row in curr_piece]
+                if self.sim_rom_mode:
+                    x = self.sim_rom_x(x, self.current_pos['x'], piece)
                 pos = {"x": x, "y": 0}
                 while not self.check_collision(piece, pos):
                     pos["y"] += 1
@@ -491,6 +495,30 @@ class Tetris:
                 states[(x, i)] = self.get_state_properties(board)
             curr_piece = self.rotate(curr_piece)
         return states
+
+    def sim_rom_x(self, x, current_x, piece):
+        # collision detection
+        new_x = x
+        if x < current_x:
+            offset = current_x - x
+            for offset_i in range(1, offset+1):
+                tmp = current_x - offset_i
+                pos = {"x": tmp, "y": offset_i}
+                if self.check_collision(piece, pos):
+                    new_x = tmp + 1
+                    break
+        elif x > current_x:
+            offset = x - current_x
+            for offset_i in range(1, offset+1):
+                tmp = current_x + offset_i
+                pos = {"x": tmp, "y": offset_i}
+                if self.check_collision(piece, pos):
+                    new_x = tmp - 1
+                    break
+        pos = {"x": current_x, "y": 0}
+        if self.check_collision(piece, pos):
+            new_x = current_x
+        return new_x
 
     def _get_board(self):
         board = self.get_current_board_state()
@@ -609,6 +637,7 @@ class Tetris:
         if not self.gameover:
             self.new_piece()
         if self.gameover:
+            score = -2
             self.score -= 2
 
         return score, self.gameover

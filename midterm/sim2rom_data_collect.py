@@ -19,6 +19,7 @@ parser.add_argument("--total_episodes", type=int, default=10)
 parser.add_argument("--max_episode_length", type=int, default=3000)
 parser.add_argument("--fps", type=int, default=5, help="frames per second")
 parser.add_argument("--saved_path", type=str, default="output")
+parser.add_argument("--ckpt_name", type=str, default="tetris_24500.pth")
 parser.add_argument("--output", type=str, default="buffer_imitation.npz")
 parser.add_argument("--out_video", type=str, default="video.avi")
 parser.add_argument("--gpu", type=int, default=0)
@@ -75,7 +76,7 @@ def test(args):
     else:
         torch.manual_seed(0)
     device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() else 'cpu')
-    model = torch.load("{}/old_best5000_avg500_commit1015058/tetris_5000".format(args.saved_path)).to(device)
+    model = torch.load("{}/{}".format(args.saved_path, args.ckpt_name), map_location=device)
     model.eval()
 
     rom_env = SymbolTetrisSimple(gym.make('Tetris-v0'), max_episode_length=args.max_episode_length, align=False)
