@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from model import DQN
 from tetris import Tetris
-from utils import ReplayBufferOld
+from utils import ReplayBufferOld, str2bool
 import utils
 import logging
 import sys
@@ -42,12 +42,15 @@ def get_args():
     parser.add_argument("--saved_dir", type=str, default="output")
     parser.add_argument("--log_file", type=str, default="output/train.log")
     parser.add_argument("--gpu", type=int, default=1)
+    parser.add_argument("--sim_rom_mode", type=str2bool, default=False)
 
     args = parser.parse_args()
     return args
 
 
 def get_epsilon(args, epoch):
+    # eps_threshold = args.final_epsilon + (max(args.num_decay_epochs - epoch, 0) * (
+    #             args.initial_epsilon - args.final_epsilon) / args.num_decay_epochs)
     eps_threshold = args.final_epsilon + (args.initial_epsilon - args.final_epsilon) \
                     * math.exp(-1. * epoch / args.num_decay_epochs)
     return eps_threshold
@@ -75,6 +78,10 @@ def setup_logger(args):
 
 def train(args):
     logger = setup_logger(args)
+    logger.info('---- Options ----')
+    for k, v in vars(args).items():
+        logger.info(k + ': ' + str(v))
+    logger.info('--------\n')
     
     if torch.cuda.is_available():
         torch.cuda.manual_seed(0)
@@ -88,8 +95,11 @@ def train(args):
     writer = SummaryWriter(args.tensorboard_dir)
     env = Tetris(width=args.width,
                  height=args.height,
-                 block_size=args.block_size)
-    model = DQN()
+                 block_size=args.block_size,
+                 sim_rom_mode=args.sim_rom_mode)
+    state_dim = 25 
+    action_dim = 2
+    model = DQN(input_dim=state_dim)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.MSELoss()
     device = torch.device(
@@ -98,12 +108,12 @@ def train(args):
     state = env.reset()
     model.to(device)
 
-    state_dim = 22 
-    action_dim = 2
     replay_memory = ReplayBufferOld(state_dim, action_dim, device=device,
         max_size=args.replay_memory_size)  # action = [x_axis, rotate_times]
     episode = 0
     step_cnt = 0
+    seed = 0
+    random.seed(seed)
     while episode < args.num_episodes:
         next_steps = env.get_next_states()
 
@@ -136,9 +146,8 @@ def train(args):
             step_cnt += 1
             continue
 
-        if len(replay_memory) < args.replay_memory_size:
-            if episode % 100 == 0:
-                logger.info("Episode:%d Current Memory Size: %d" % (episode, len(replay_memory)))
+        if len(replay_memory) < args.replay_memory_size / 10:
+            # logger.info("Episode:%d Current Memory Size: %d" % (episode, len(replay_memory)))
             continue
         episode += 1
         batch = replay_memory.sample(args.batch_size)
@@ -169,6 +178,9 @@ def train(args):
 
         if episode > 2000 and episode % args.save_interval == 0:
             torch.save(model, "{}/tetris_{}.pth".format(args.saved_dir, episode))
+        if episode % 100:
+            random.seed(seed%10)
+            seed += 1
 
     torch.save(model, "{}/tetris.pth".format(args.saved_dir))
 

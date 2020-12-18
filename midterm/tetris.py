@@ -386,7 +386,7 @@ class Tetris:
     ]
 
     def __init__(self, height=20, width=10, block_size=20, 
-                simplified_feature=False, sim_rom_mode=True):
+                simplified_feature=False, sim_rom_mode=False):
         self.height = height
         self.width = width
         self.block_size = block_size
@@ -430,9 +430,12 @@ class Tetris:
 
             return torch.FloatTensor([lines_cleared, holes, bumpiness, height])
         else:
+            num_holes = self.get_holes(board)
+            bumpiness, height = self.get_bumpiness_and_height(board)
             heights = self.get_height_vector(board)
             holes = self.get_hole_vector(board, heights)
-            return torch.FloatTensor(np.concatenate((heights, holes, [lines_cleared, self.ind])))
+            return torch.FloatTensor(np.concatenate((heights, holes, 
+                                [num_holes, bumpiness, height, lines_cleared, self.ind])))
             # return [torch.FloatTensor(np.concatenate((heights, holes, [lines_cleared]))),board,np.sum(np.minimum(board,1), axis=0)]
 
     def get_height_vector(self, board):
@@ -637,7 +640,7 @@ class Tetris:
         if not self.gameover:
             self.new_piece()
         if self.gameover:
-            score = -2
+            # score = -2
             self.score -= 2
 
         return score, self.gameover
