@@ -29,13 +29,13 @@ def get_args():
     parser.add_argument("--batch_size",type=int,default=512,
                         help="The number of images per batch")
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--gamma", type=float, default=1.0)
     parser.add_argument("--initial_epsilon", type=float, default=0.9)
     parser.add_argument("--final_epsilon", type=float, default=1e-3)
-    parser.add_argument("--num_decay_epochs", type=float, default=5000)
+    parser.add_argument("--num_decay_epochs", type=float, default=1000)
     parser.add_argument("--num_episodes", type=int, default=100000)
     parser.add_argument("--max_episode_length", type=int, default=5000)
-    parser.add_argument("--save_interval", type=int, default=500)
+    parser.add_argument("--save_interval", type=int, default=200)
     parser.add_argument("--replay_memory_size",type=int,default=50000,
                         help="Number of epoches between testing phases")
     parser.add_argument("--tensorboard_dir", type=str, default="runs")
@@ -99,14 +99,13 @@ def train(args):
                  sim_rom_mode=args.sim_rom_mode)
     state_dim = 25 
     action_dim = 2
-    model = DQN(input_dim=state_dim)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    criterion = nn.MSELoss()
     device = torch.device(
         'cuda:{}'.format(args.gpu) if torch.cuda.is_available() else 'cpu')
+    model = DQN(input_dim=state_dim).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    criterion = nn.MSELoss()
 
     state = env.reset()
-    model.to(device)
 
     replay_memory = ReplayBufferOld(state_dim, action_dim, device=device,
         max_size=args.replay_memory_size)  # action = [x_axis, rotate_times]
@@ -160,7 +159,9 @@ def train(args):
         model.train()
 
         next_prediction_batch[done_batch < 0.5] = 0.0
-        y_batch = reward_batch + args.gamma * next_prediction_batch
+        norm_lines_batch = torch.sqrt((reward_batch - 1) / 10) / 4
+        y_batch = norm_lines_batch + args.gamma * next_prediction_batch
+        # y_batch = reward_batch + args.gamma * next_prediction_batch
 
         optimizer.zero_grad()
         loss = criterion(q_values, y_batch)
