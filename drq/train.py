@@ -80,7 +80,7 @@ class WrapPyTorch(gym.ObservationWrapper):
 
 from nes_py.wrappers import JoypadSpace
 import gym_tetris
-from gym_tetris.actions import MOVEMENT
+from gym_tetris.actions import MOVEMENT, SIMPLE_MOVEMENT
 
 
 def make_env(cfg):
@@ -109,7 +109,7 @@ def make_env(cfg):
 #                        camera_id=camera_id)
     # env = gym.make("CarRacing-v0")
     env_ = gym_tetris.make('TetrisA-v0')
-    env = JoypadSpace(env_, MOVEMENT)
+    env = JoypadSpace(env_, SIMPLE_MOVEMENT)
     # env = MaxAndSkipEnv(env)
     # env._max_episode_steps = env_._max_episode_steps
     max_episode_steps = 10000

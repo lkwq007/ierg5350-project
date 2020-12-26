@@ -111,7 +111,7 @@ class FrameStack(gym.Wrapper):
     def reset(self):
         # print("Reseting env")
         obs = self.env.reset()
-        self.env.ram[0x0064]=29
+        # self.env.ram[0x0064]=29
 
         for i in range(85):
             obs,r,d,i=self.env.step(0)
@@ -124,6 +124,14 @@ class FrameStack(gym.Wrapper):
     def step(self, action):
         obs, reward, done, info = self.env.step(action)
         self._frames.append(obs)
+        flag=False
+        while self.env.ram[0x0065]>0 and self.env.ram[0x0068]>=2 and not done:
+            flag=True
+            o,r,d,info=self.env.step(0)
+            reward+=r
+            done=d or done
+        if flag and not done:
+            reward+=5
         return self._get_obs(), reward, done, info
 
     def _get_obs(self):
