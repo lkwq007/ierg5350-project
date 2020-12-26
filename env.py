@@ -173,8 +173,8 @@ class NesEnv():
         reward = 0
         state, done = None, None
         total=3 if self._env.ram[0x0068]<2 else 1
-        for k in range(2):
-            print(f"Timer: {self._env.ram[0x0065]},State {self._env.ram[0x0068]}")
+        for k in range(3):
+            # print(f"Timer: {self._env.ram[0x0065]},State {self._env.ram[0x0068]}")
             state, reward_k, done, info = self._env.step(action if k==0 else 0)
             reward += reward_k
             self.t += 1  # Increment internal timer
