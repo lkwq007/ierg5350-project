@@ -88,8 +88,10 @@ parser.add_argument('--expl_decay', type=float, default=100000.0,
 parser.add_argument('--expl_min', type=float, default=0.1,
                                         help='Minimum Exploration Decay Value')
 parser.add_argument('--experience-buffer', type=str, default='', metavar='EB', help='Load experience replay')
-parser.add_argument('--use-reward', action='store_true', help='Load experience replay')
-parser.add_argument('--clone',action='store_true', help='Load experience replay')
+parser.add_argument('--use-reward', action='store_true', help='Use reward from experience')
+parser.add_argument('--clone',action='store_true', help='Enable clone')
+parser.add_argument('--crossentropy',action='store_true', help='Enable crossentropy')
+parser.add_argument('--short',action='store_true', help='Load short experience replay')
 args = parser.parse_args()
 args.symbolic_env=True
 args.overshooting_distance = min(args.chunk_size, args.overshooting_distance)  # Overshooting distance cannot be greater than chunk size
@@ -130,7 +132,7 @@ elif not args.test:
     # Initialise dataset D with S random seed episodes
     _num_step=0
     if args.env=="Tetris-v0":
-        for s in range(1, 2):
+        for s in range(1, args.seed_episodes):
             observation, done, t = env.reset(), False, 0
             while not done:
                 action = env.sample_random_action()
@@ -147,16 +149,22 @@ elif not args.test:
             def get_action(idx):
                 indices = torch.tensor(idx).long()
                 return F.one_hot(indices, env.action_size).float()
-            buffer=np.load(args.experience_buffer)
-            total=buffer["all_reward"].shape[0]
-            for i in range(total):
-                obs=buffer["all_obs"][i]
-                action=get_action(buffer["all_action"][i])
-                done=buffer["all_done"][i]
+            with np.load(args.experience_buffer) as buffer:
+                total=buffer["all_reward"].shape[0] if not args.short else 100
+                all_action=buffer['all_action']
+                all_done=buffer['all_done']
+                all_reward=buffer['all_reward']
+                all_obs=buffer['all_obs']
+                                
+            #buffer=buffer
+            for i in tqdm(range(total)):
+                obs=all_obs[i]
+                action=get_action(all_action[i])
+                done=all_done[i]
                 reward=0
                 obs=torch.tensor(obs, dtype=torch.float32).unsqueeze(dim=0)
                 if args.use_reward:
-                    reward=buffer["all_reward"][i]
+                    reward=all_reward[i]
                 else:
                     line=buffer["all_line"][i]
                     if line>0:
@@ -320,16 +328,17 @@ def clone():
                 beliefs, prior_states, prior_means, prior_std_devs, posterior_states, posterior_means, posterior_std_devs = transition_model(init_state, actions[:-1], init_belief, bottle(encoder, (observations[1:], )), nonterminals[:-1])
                 clone_actions = actions[:-1].detach()
                 clone_beliefs = beliefs.detach()
-                clone_states = posterior_state.detach()
+                clone_states = posterior_states.detach()
             pred_actions = bottle(actor_model, (clone_beliefs,clone_states))
-            if args.actor_logprob:
-                pass
+            if args.crossentropy:
+                actor_loss=F.binary_cross_entropy(pred_actions,clone_actions, reduction='none').sum(dim=2).mean(dim=(0, 1))
             else:
                 actor_loss=F.mse_loss(pred_actions,clone_actions, reduction='none').sum(dim=2).mean(dim=(0, 1))
             actor_optimizer.zero_grad()
             actor_loss.backward()
             nn.utils.clip_grad_norm_(actor_model.parameters(), args.grad_clip_norm, norm_type=2)
             actor_optimizer.step()
+            return actor_loss
 
 # Training (and testing)
 for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total=args.episodes, initial=metrics['episodes'][-1] + 1):
@@ -400,7 +409,12 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         nn.utils.clip_grad_norm_(param_list, args.grad_clip_norm, norm_type=2)
         model_optimizer.step()
         if args.experience_buffer and args.clone:
-            clone()
+            actor_loss=clone()
+            value_loss = torch.zeros(0).mean()
+            onestep_loss = torch.zeros(0).mean()
+            curious_value_loss = torch.zeros(0).mean()
+            curious_actor_loss = torch.zeros(0).mean()
+            continue
             # with torch.no_grad():
             #     actor_states = posterior_states.detach()
             #     actor_beliefs = beliefs.detach()
@@ -556,14 +570,14 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
             policy = planner
 
     with torch.no_grad():
-        for i in range(10):
+        for i in range(1):
             observation, total_reward = env.reset(), 0
             belief, posterior_state, action = torch.zeros(1, args.belief_size, device=args.device), torch.zeros(1, args.state_size, device=args.device), torch.zeros(1, env.action_size, device=args.device)
             pbar = tqdm(range(args.max_episode_length // args.action_repeat))
             for t in pbar:
                 # print("step",t)
                 belief, posterior_state, action, next_observation, reward, done = update_belief_and_act(args, env, policy, transition_model, encoder, belief, posterior_state, action, observation.to(device=args.device), explore=True)
-                D.append(observation, action.cpu(), reward, done)
+                # D.append(observation, action.cpu(), reward, done)
                 total_reward += reward
                 observation = next_observation
                 if args.render:
