@@ -42,7 +42,7 @@ python simple.py --collect-interval 100 --test-interval 5  --env Tetris-v0 --sym
 ## Acknowledgment
 
 - Dreamer implementation is based on https://github.com/danijar/dreamer and https://github.com/yusukeurakami/dreamer-pytorch 
-- DrQ is basd on https://github.com/denisyarats/drq
+- DrQ is based on https://github.com/denisyarats/drq
 - CURL-Rainbow is based on https://github.com/aravindsrinivas/curl_rainbow
 - SAC is based on https://github.com/ku2482/sac-discrete.pytorch
 - PPO is based on https://github.com/cuhkrlcourse/ierg5350-assignment 
