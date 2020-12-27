@@ -3,7 +3,7 @@ targets=(
     curl_rainbow
     dreamer
     drq
-    midterm
+    dqn
     plan2explore
     ppo
     sac

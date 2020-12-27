@@ -7,7 +7,7 @@
 bash ./prepare.sh
 
 # dqn
-cd midterm
+cd dqn
 python train.py
 
 # sac
@@ -42,6 +42,7 @@ python simple.py --collect-interval 100 --test-interval 5  --env Tetris-v0 --sym
 ## Acknowledgment
 
 - Dreamer implementation is based on https://github.com/danijar/dreamer and https://github.com/yusukeurakami/dreamer-pytorch 
+- DQN implementation is based on https://github.com/uvipen/Tetris-deep-Q-learning-pytorch
 - DrQ is based on https://github.com/denisyarats/drq
 - CURL-Rainbow is based on https://github.com/aravindsrinivas/curl_rainbow
 - SAC is based on https://github.com/ku2482/sac-discrete.pytorch
