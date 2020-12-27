@@ -1,44 +1,56 @@
-# Learn to Play Tetris
+# Learn to Play Tetris with Deep RL
 
-## How-to
+## Prepare
 
 ```
 # prepare env
 bash ./prepare.sh
+```
 
-# dqn
+## How-to
+#### dqn
+```
 cd dqn
 python train.py
 # Test dqn on Simplified Env 
 python test.py --ckpt_name gamma0999/tetris_6000.pth
 # Test dqn on Pygame Env
 python sim2rom.py --ckpt_name gamma0999/tetris_6000.pth
+```
 
-# sac
+#### sac
+```
 cd sac
 python train.py
-
-# ppo
+```
+#### ppo
+```
 cd ppo
 python train.py
+```
 
-# dreamer
+#### dreamer
+```
 cd dreamer
 python main.py --algo dreamer --collect_interval 200 --test_interval 5 --add_reward True --small_image True --expl_amount 0.3 --binary_image True
-
-# curl
+```
+#### curl
+```
 cd curl
 python main.py --inc_level --reward_mode 0
-
-# drq
+```
+#### drq
+```
 cd drq
 python train.py
-
-# plan2explore
+```
+#### plan2explore
+```
 cd plan2explore
 python simple.py --collect-interval 100 --test-interval 5  --env Tetris-v0 --symbolic-env  --expl_amount 0.3 --algo p2e
-
-# lucid-dreamer
+```
+#### lucid-dreamer
+```
 cd plan2explore
 python simple.py --collect-interval 100 --test-interval 5  --env Tetris-v0 --symbolic-env  --expl_amount 0.1 --algo dreamer --experience-buffer buffer.npz --use-reward --clone
 ```
