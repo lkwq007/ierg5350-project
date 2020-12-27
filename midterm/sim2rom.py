@@ -8,7 +8,7 @@ import gym
 import numpy as np
 import os
 import gzip
-
+import random
 
 parser = argparse.ArgumentParser("Implementation of Deep Q Network to play Tetris")
 parser.add_argument("--width", type=int, default=10, help="The common width for all images")
@@ -19,6 +19,7 @@ parser.add_argument("--fps", type=int, default=5, help="frames per second")
 parser.add_argument("--saved_path", type=str, default="output")
 parser.add_argument("--ckpt_name", type=str, default="tetris_24500.pth")
 parser.add_argument("--out_video", type=str, default="video.avi")
+parser.add_argument("--out_npy", type=str, default="sim2rom_result.npy")
 parser.add_argument("--gpu", type=int, default=0)
 parser.add_argument("--gui_render", type=str2bool, default=True)
 args = parser.parse_args()
@@ -32,8 +33,9 @@ def test(args, episodes=0):
     model = torch.load("{}/{}".format(args.saved_path, args.ckpt_name), map_location=device)
     model.eval()
 
+    random.seed(episodes)
     rom_env = SymbolTetrisSimple(gym.make('Tetris-v0'), max_episode_length=-1, align=False)
-    sim_env = Tetris(width=args.width, height=args.height, block_size=args.block_size)
+    sim_env = Tetris(width=args.width, height=args.height, block_size=args.block_size, shuffle=False)
     out = None
     if args.gui_render:
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
@@ -46,7 +48,7 @@ def test(args, episodes=0):
     step_counter = 0
     while True:
         if step_counter % 100 == 0:
-            print("Counter: %d Lines: %d" % (step_counter, sim_env.cleared_lines))
+            print("PyGame Counter: %d Lines: %d" % (step_counter, sim_env.cleared_lines))
         next_steps = sim_env.get_next_states()
         next_actions, next_states = zip(*next_steps.items())
         next_states = torch.stack(next_states).to(device)
@@ -79,4 +81,6 @@ if __name__ == "__main__":
         print("Test Episode: %d" % i)
         test_res[i] = test(args, i)
     print(test_res, test_res.mean(), test_res.std())
+    npy_path = os.path.join(args.saved_path, args.out_npy)
+    np.save(npy_path, test_res)
     

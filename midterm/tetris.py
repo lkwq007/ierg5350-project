@@ -386,7 +386,7 @@ class Tetris:
     ]
 
     def __init__(self, height=20, width=10, block_size=20, 
-                simplified_feature=False, sim_rom_mode=False):
+                simplified_feature=False, sim_rom_mode=False, shuffle=True):
         self.height = height
         self.width = width
         self.block_size = block_size
@@ -395,6 +395,7 @@ class Tetris:
         self.text_color = (200, 20, 220)
         self.simplified_feature = simplified_feature
         self.sim_rom_mode = sim_rom_mode
+        self.shuffle = shuffle
         self.reset()
 
     def reset(self):
@@ -403,7 +404,8 @@ class Tetris:
         self.tetrominoes = 0
         self.cleared_lines = 0
         self.bag = list(range(len(self.pieces)))
-        random.shuffle(self.bag)
+        if self.shuffle:
+            random.shuffle(self.bag)
         self.ind = self.bag.pop()
         self.piece = [row[:] for row in self.pieces[self.ind]]
         self.current_pos = {"x": self.width // 2 - len(self.piece[0]) // 2, "y": 0}
@@ -547,7 +549,8 @@ class Tetris:
     def new_piece(self):
         if not len(self.bag):
             self.bag = list(range(len(self.pieces)))
-            random.shuffle(self.bag)
+            if self.shuffle:
+                random.shuffle(self.bag)
         self.ind = self.bag.pop()
         self.piece = [row[:] for row in self.pieces[self.ind]]
         self.current_pos = {"x": self.width // 2 - len(self.piece[0]) // 2,

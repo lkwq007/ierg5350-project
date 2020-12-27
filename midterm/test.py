@@ -4,6 +4,8 @@ import cv2
 from tetris import Tetris
 from utils import str2bool
 import numpy as np
+import random
+import os
 
 def get_args():
     parser = argparse.ArgumentParser("Implementation of Deep Q Network to play Tetris")
@@ -12,9 +14,11 @@ def get_args():
     parser.add_argument("--height", type=int, default=20, help="The common height for all images")
     parser.add_argument("--block_size", type=int, default=30, help="Size of a block")
     parser.add_argument("--fps", type=int, default=300, help="frames per second")
+    parser.add_argument("--max_test_lines", type=int, default=10000, help="max cleared lines when testing")
     parser.add_argument("--saved_path", type=str, default="output")
     parser.add_argument("--ckpt_name", type=str, default="tetris_24500.pth")
     parser.add_argument("--output", type=str, default="video.avi")
+    parser.add_argument("--out_npy", type=str, default="simtest_result.npy")
     parser.add_argument("--gpu", type=int, default=1)
     parser.add_argument("--gui_render", type=str2bool, default=False)
 
@@ -22,7 +26,7 @@ def get_args():
     return args
 
 
-def test(args):
+def test(args, ep_seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed(0)
     else:
@@ -31,6 +35,7 @@ def test(args):
     model = torch.load("{}/{}".format(args.saved_path, args.ckpt_name), map_location=device)
 
     model.eval()
+    random.seed(ep_seed)
     env = Tetris(width=args.width, height=args.height, block_size=args.block_size)
     env.reset()
     out = None
@@ -41,7 +46,10 @@ def test(args):
     counter = 0
     while True:
         if counter % 100 == 0:
-            print("Counter: %d Lines: %d" % (counter, env.cleared_lines))
+            print("Step: %d Lines: %d" % (counter, env.cleared_lines))
+        if counter == args.max_test_lines:
+            print("Reach max_test_lines: %d. Terminate the game" % args.max_test_lines)
+            break
         next_steps = env.get_next_states()
         next_actions, next_states = zip(*next_steps.items())
         next_states = torch.stack(next_states).to(device)
@@ -59,11 +67,13 @@ def test(args):
 
 
 if __name__ == "__main__":
-    test_num = 10
+    test_num = 100
     test_res = np.zeros(test_num)
+    args = get_args()
     for i in range(test_num):
         print("Test Episode: %d" % i)
-        args = get_args()
-        test_res[i] = test(args)
-    print(test_res, test_res.mean(), test_res.std())
-
+        test_res[i] = test(args, i)
+    print(test_res)
+    print("Mean: %.4f Std: %.4f" % (test_res.mean(), test_res.std()))
+    npy_path = os.path.join(args.saved_path, args.out_npy)
+    np.save(npy_path, test_res)
