@@ -9,6 +9,10 @@ bash ./prepare.sh
 # dqn
 cd dqn
 python train.py
+# Test dqn on Simplified Env 
+python test.py --ckpt_name gamma0999/tetris_6000.pth
+# Test dqn on Pygame Env
+python sim2rom.py --ckpt_name gamma0999/tetris_6000.pth
 
 # sac
 cd sac

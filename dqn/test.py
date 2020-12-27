@@ -16,7 +16,7 @@ def get_args():
     parser.add_argument("--fps", type=int, default=300, help="frames per second")
     parser.add_argument("--max_test_lines", type=int, default=10000, help="max cleared lines when testing")
     parser.add_argument("--saved_path", type=str, default="output")
-    parser.add_argument("--ckpt_name", type=str, default="tetris_24500.pth")
+    parser.add_argument("--ckpt_name", type=str, default="gamma0999/tetris_6000.pth")
     parser.add_argument("--output", type=str, default="video.avi")
     parser.add_argument("--out_npy", type=str, default="simtest_result.npy")
     parser.add_argument("--gpu", type=int, default=1)
@@ -47,7 +47,7 @@ def test(args, ep_seed):
     while True:
         if counter % 100 == 0:
             print("Step: %d Lines: %d" % (counter, env.cleared_lines))
-        if counter == args.max_test_lines:
+        if env.cleared_lines >= args.max_test_lines:
             print("Reach max_test_lines: %d. Terminate the game" % args.max_test_lines)
             break
         next_steps = env.get_next_states()

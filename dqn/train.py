@@ -18,26 +18,20 @@ import sys
 import math
 
 def get_args():
-    parser = argparse.ArgumentParser(
-        "Implementation of Deep Q Network to play Tetris")
-    parser.add_argument("--width",type=int,default=10,
-                        help="The common width for all images")
-    parser.add_argument("--height",type=int,default=20,
-                        help="The common height for all images")
-    parser.add_argument("--block_size",type=int,default=30,
-                        help="Size of a block")
-    parser.add_argument("--batch_size",type=int,default=512,
-                        help="The number of images per batch")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--width",type=int,default=10, help="The common width for all images")
+    parser.add_argument("--height",type=int,default=20, help="The common height for all images")
+    parser.add_argument("--block_size",type=int,default=30, help="Size of a block")
+    parser.add_argument("--batch_size",type=int,default=512, help="The number of images per batch")
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--gamma", type=float, default=1.0)
+    parser.add_argument("--gamma", type=float, default=0.999)
     parser.add_argument("--initial_epsilon", type=float, default=0.9)
     parser.add_argument("--final_epsilon", type=float, default=1e-3)
     parser.add_argument("--num_decay_epochs", type=float, default=1000)
     parser.add_argument("--num_episodes", type=int, default=10000)
     parser.add_argument("--max_episode_length", type=int, default=5000)
     parser.add_argument("--save_interval", type=int, default=200)
-    parser.add_argument("--replay_memory_size",type=int,default=50000,
-                        help="Number of epoches between testing phases")
+    parser.add_argument("--replay_memory_size",type=int,default=50000)
     parser.add_argument("--tensorboard_dir", type=str, default="runs")
     parser.add_argument("--saved_dir", type=str, default="output")
     parser.add_argument("--log_file", type=str, default="output/train.log")
@@ -49,8 +43,6 @@ def get_args():
 
 
 def get_epsilon(args, epoch):
-    # eps_threshold = args.final_epsilon + (max(args.num_decay_epochs - epoch, 0) * (
-    #             args.initial_epsilon - args.final_epsilon) / args.num_decay_epochs)
     eps_threshold = args.final_epsilon + (args.initial_epsilon - args.final_epsilon) \
                     * math.exp(-1. * epoch / args.num_decay_epochs)
     return eps_threshold
@@ -93,14 +85,10 @@ def train(args):
     if not os.path.exists(args.saved_dir):
         os.makedirs(args.saved_dir)
     writer = SummaryWriter(args.tensorboard_dir)
-    env = Tetris(width=args.width,
-                 height=args.height,
-                 block_size=args.block_size,
-                 sim_rom_mode=args.sim_rom_mode)
+    env = Tetris(width=args.width, height=args.height, block_size=args.block_size, sim_rom_mode=args.sim_rom_mode)
     state_dim = 25 
     action_dim = 2
-    device = torch.device(
-        'cuda:{}'.format(args.gpu) if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() else 'cpu')
     model = DQN(input_dim=state_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.MSELoss()
@@ -159,9 +147,7 @@ def train(args):
         model.train()
 
         next_prediction_batch[done_batch < 0.5] = 0.0
-        # norm_lines_batch = torch.sqrt((reward_batch - 1) / 10) / 4
         y_batch = reward_batch + args.gamma * next_prediction_batch
-        # y_batch = reward_batch + args.gamma * next_prediction_batch
 
         optimizer.zero_grad()
         loss = criterion(q_values, y_batch)
