@@ -642,8 +642,8 @@ class Tetris:
         if self.gameover:
             # score = -2
             self.score -= 2
-
-        return score, self.gameover
+        reward = lines_cleared * 0.25
+        return reward, self.gameover
 
     def render_write(self, render=True, video=None):
         if not self.gameover:

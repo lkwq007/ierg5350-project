@@ -33,7 +33,7 @@ def get_args():
     parser.add_argument("--initial_epsilon", type=float, default=0.9)
     parser.add_argument("--final_epsilon", type=float, default=1e-3)
     parser.add_argument("--num_decay_epochs", type=float, default=1000)
-    parser.add_argument("--num_episodes", type=int, default=100000)
+    parser.add_argument("--num_episodes", type=int, default=10000)
     parser.add_argument("--max_episode_length", type=int, default=5000)
     parser.add_argument("--save_interval", type=int, default=200)
     parser.add_argument("--replay_memory_size",type=int,default=50000,
@@ -159,8 +159,8 @@ def train(args):
         model.train()
 
         next_prediction_batch[done_batch < 0.5] = 0.0
-        norm_lines_batch = torch.sqrt((reward_batch - 1) / 10) / 4
-        y_batch = norm_lines_batch + args.gamma * next_prediction_batch
+        # norm_lines_batch = torch.sqrt((reward_batch - 1) / 10) / 4
+        y_batch = reward_batch + args.gamma * next_prediction_batch
         # y_batch = reward_batch + args.gamma * next_prediction_batch
 
         optimizer.zero_grad()
